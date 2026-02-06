@@ -24,3 +24,27 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+:root {
+  /* Verrington theme (can tweak later) */
+  --vf-bg: #ffffff;
+  --vf-surface: #f8fafc;
+  --vf-text: #0f172a;
+  --vf-muted: #475569;
+
+  /* Primary brand */
+  --vf-primary: #1f6f4a; /* deep woodland green */
+  --vf-primary-contrast: #ffffff;
+
+  /* Accent */
+  --vf-accent: #b45309; /* warm amber */
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--vf-bg);
+  color: var(--vf-text);
+}
