@@ -5,6 +5,7 @@ type Product = {
   name: string;
   description: string;
   price: number; // GBP
+  checkoutUrl: string;
 };
 
 const PRODUCTS: Product[] = [
@@ -13,18 +14,21 @@ const PRODUCTS: Product[] = [
     name: "Net of Logs",
     description: "Perfect for occasional fires. Easy to store and handle.",
     price: 20,
+    checkoutUrl: "https://www.verringtonfirewood.co.uk/product/14196058/large-20kg-net-of-logs",
   },
   {
     id: "bulk-bag",
     name: "Bulk Bag of Logs",
     description: "Best value for regular burners. Seasoned hardwood.",
     price: 100,
+    checkoutUrl: "https://www.verringtonfirewood.co.uk/product/14196007/back-in-stock-premium-dumpy-bag-of-fully-seasoned-firewood",
   },
   {
-    id: "kindling",
-    name: "Kindling Bag",
-    description: "Dry softwood kindling to get your fire going quickly.",
-    price: 7.50,
+    id: "IBC-Crate-Approx-1.2-Cube-of-Logs",
+    name: "IBC Crate",
+    description: "A full IBC Crate worth of loose-tipped, fully seasoned, beautifully dry, and cut to practical lengths that make lighting your fire effortless..",
+    price: 195,
+    checkoutUrl: "https://www.verringtonfirewood.co.uk/product/14188502/back-in-stock-ibc-crate-approx-1-2-cube-of-logs",
   },
 ];
 
@@ -64,23 +68,19 @@ export default function Home() {
                 style={{ background: "var(--vf-surface)" }}
               >
                 <div>
-                  <h3 className="text-lg font-semibold">
-                    {product.name}
-                  </h3>
-                  <p
-                    className="mt-2 text-sm"
-                    style={{ color: "var(--vf-muted)" }}
-                  >
+                  <h3 className="text-lg font-semibold">{product.name}</h3>
+                  <p className="mt-2 text-sm" style={{ color: "var(--vf-muted)" }}>
                     {product.description}
                   </p>
                 </div>
 
                 <div className="mt-6 flex items-center justify-between">
-                  <span className="text-xl font-bold">
-                    £{product.price}
-                  </span>
+                  <span className="text-xl font-bold">£{product.price}</span>
 
-                  <button
+                  <a
+                    href={product.checkoutUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="rounded-xl px-4 py-2 text-sm font-semibold"
                     style={{
                       background: "var(--vf-primary)",
@@ -88,11 +88,15 @@ export default function Home() {
                     }}
                   >
                     Order
-                  </button>
+                  </a>
                 </div>
               </div>
             ))}
           </div>
+
+          <p className="mt-6 text-sm" style={{ color: "var(--vf-muted)" }}>
+            Clicking “Order” opens secure checkout in a new tab.
+          </p>
         </section>
       </div>
     </main>
