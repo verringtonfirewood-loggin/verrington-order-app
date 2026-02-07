@@ -6,11 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+
+    "postinstall": "prisma generate",
+    "vercel-build": "prisma migrate deploy && prisma generate && next build"
   },
   "dependencies": {
-    "@prisma/adapter-mariadb": "^7.3.0",
-    "@prisma/client": "^7.3.0",
+    "@prisma/adapter-mariadb": "7.3.0",
+    "@prisma/client": "7.3.0",
     "mariadb": "^3.4.5",
     "next": "16.1.6",
     "react": "19.2.3",
@@ -23,7 +26,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
-    "prisma": "^7.3.0",
+    "prisma": "7.3.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
