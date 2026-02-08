@@ -48,10 +48,8 @@ export default function AdminOrdersPage() {
       const res = await fetch(`/api/admin/orders?take=${take}`, {
         headers: { "x-admin-token": token },
       });
-
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? json?.message ?? "Failed to load");
-
       setOrders(json.orders ?? []);
     } catch (e: any) {
       setError(e?.message ?? String(e));
@@ -89,7 +87,7 @@ export default function AdminOrdersPage() {
             </button>
           </div>
           <div style={{ fontSize: 12, opacity: 0.7 }}>
-            This page calls <code>/api/admin/orders</code> with an <code>x-admin-token</code> header.
+            This page calls <code>/api/admin/orders</code> with <code>x-admin-token</code>.
           </div>
         </div>
 
@@ -163,12 +161,6 @@ export default function AdminOrdersPage() {
             </div>
           </div>
         ))}
-
-        {!loading && orders.length === 0 ? (
-          <div style={{ padding: 16, border: "1px dashed #ccc", borderRadius: 8, opacity: 0.8 }}>
-            No orders loaded yet. Enter token → Save token → Load orders.
-          </div>
-        ) : null}
       </div>
     </main>
   );
