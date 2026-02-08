@@ -17,7 +17,7 @@ function isAuthed(req: NextApiRequest): boolean {
 
   let decoded = "";
   try {
-    decoded = Buffer.from(auth.slice(6), "base64").toString("utf8");
+    decoded = Buffer.from(auth.slice("Basic ".length), "base64").toString("utf8");
   } catch {
     return false;
   }
@@ -25,10 +25,10 @@ function isAuthed(req: NextApiRequest): boolean {
   const idx = decoded.indexOf(":");
   if (idx === -1) return false;
 
-  return (
-    decoded.slice(0, idx) === user &&
-    decoded.slice(idx + 1) === pass
-  );
+  const u = decoded.slice(0, idx);
+  const p = decoded.slice(idx + 1);
+
+  return u === user && p === pass;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -40,7 +40,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const take = Math.min(Number(req.query.take) || 50, 200);
+    const takeRaw = typeof req.query.take === "string" ? Number(req.query.take) : NaN;
+    const take = Number.isFinite(takeRaw) ? Math.max(1, Math.min(200, Math.trunc(takeRaw))) : 50;
+
     const status =
       typeof req.query.status === "string" && req.query.status.trim()
         ? req.query.status.trim()
@@ -53,16 +55,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const where: any = {};
 
-    if (status) {
-      where.status = status;
-    }
+    if (status) where.status = status;
 
     if (q) {
+      // NOTE: For MySQL, don't use mode:"insensitive" (often unsupported).
+      // Most MySQL setups are already case-insensitive due to collation.
       where.OR = [
-        { customerName: { contains: q, mode: "insensitive" } },
-        { customerPhone: { contains: q, mode: "insensitive" } },
-        { customerEmail: { contains: q, mode: "insensitive" } },
-        { postcode: { contains: q, mode: "insensitive" } },
+        { customerName: { contains: q } },
+        { customerPhone: { contains: q } },
+        { customerEmail: { contains: q } },
+        { postcode: { contains: q } },
       ];
     }
 
@@ -76,9 +78,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ ok: true, orders });
   } catch (err: any) {
     console.error("GET /api/admin/orders failed:", err);
-    return res.status(500).json({
-      ok: false,
-      message: err?.message ?? String(err),
-    });
+    // Return message to speed debugging if anything else crops up
+    return res.status(500).json({ ok: false, message: err?.message ?? String(err) });
   }
 }
