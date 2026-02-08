@@ -1,17 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { prisma } from "@/lib/prisma";
 
-export const config = {
-  runtime: "nodejs",
-};
-
-type NormalizedItem = {
-  productId: string;
-  name: string;
-  pricePence: number;
-  quantity: number;
-};
-
 /**
  * Convert a GBP amount (e.g. "9.50", 9.5, "£9.50") to integer pence.
  * Throws on invalid values.
@@ -52,48 +41,28 @@ function toNonNegativeInt(input: unknown, fieldName: string): number {
   return n;
 }
 
-function normalizePhone(input: unknown): string {
-  const s = String(input ?? "").trim();
-  if (!s) throw new Error("Missing customerPhone");
-  // Keep as user entered but strip double spaces
-  return s.replace(/\s+/g, " ");
-}
-
-function normalizeEmail(input: unknown): string | null {
-  const s = String(input ?? "").trim();
-  if (!s) return null;
-  return s;
-}
-
 /**
  * UK postcode normalization:
+ * - trim
  * - uppercase
- * - remove spaces
- * - if length >= 5, insert a space before last 3 chars
+ * - remove all spaces
+ * - if length >= 5, insert a space before the last 3 chars
  *   e.g. "BA98BW" -> "BA9 8BW"
- * - if too short/unknown, just uppercase + collapse spaces
+ * - fallback: collapse whitespace + uppercase
  */
 function normalizeUKPostcode(input: unknown): string {
   const raw = String(input ?? "").trim();
   if (!raw) throw new Error("Missing postcode");
 
-  const noSpaces = raw.replace(/\s+/g, "").toUpperCase();
+  const compact = raw.replace(/\s+/g, "").toUpperCase();
 
-  // Typical UK postcodes are 5-7 chars without spaces.
-  if (noSpaces.length >= 5) {
-    const outward = noSpaces.slice(0, -3);
-    const inward = noSpaces.slice(-3);
+  if (compact.length >= 5) {
+    const outward = compact.slice(0, -3);
+    const inward = compact.slice(-3);
     return `${outward} ${inward}`;
   }
 
-  // Fallback: keep readable
   return raw.toUpperCase().replace(/\s+/g, " ");
-}
-
-function normalizeName(input: unknown): string {
-  const s = String(input ?? "").trim();
-  if (!s) throw new Error("Missing customerName");
-  return s.replace(/\s+/g, " ");
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -105,21 +74,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const proofTag = `vercel-proof-${new Date().toISOString()}`;
 
-    const body: any = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    // Next.js usually parses JSON automatically, but keep safe parse:
+    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
 
-    const rawItems: any[] =
+    // If you POST real items later, we’ll use them; otherwise create a dummy proof item
+    const rawItems =
       Array.isArray(body?.items) && body.items.length > 0
         ? body.items
         : [
             {
               productId: "proof-product",
               name: `Proof Item (${proofTag})`,
+              // proof item can be either pricePence or price (GBP) — both supported
               pricePence: 1234,
               quantity: 1,
             },
           ];
 
-    const items: NormalizedItem[] = rawItems.map((i: any, idx: number) => {
+    // Normalize items:
+    // - REQUIRE: productId, name, quantity
+    // - ACCEPT: price (GBP) OR priceGbp (GBP) OR pricePence (int)
+    const items = rawItems.map((i: any, idx: number) => {
       const productId = String(i?.productId ?? "").trim();
       const name = String(i?.name ?? "").trim();
 
@@ -143,24 +118,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return { productId, name, pricePence, quantity };
     });
 
+    // Compute total server-side (authoritative)
     const totalPence = items.reduce<number>((sum, i) => sum + i.pricePence * i.quantity, 0);
 
-    // Normalize customer fields
-    const customerName = body?.customerName ? normalizeName(body.customerName) : "Vercel Proof";
-    const customerPhone = body?.customerPhone ? normalizePhone(body.customerPhone) : "07000000000";
-    const customerEmail = normalizeEmail(body?.customerEmail);
-    const postcode = body?.postcode ? normalizeUKPostcode(body.postcode) : "TA1 1AA";
+    // Normalize postcode (feature A)
+    const postcode = normalizeUKPostcode(body?.postcode ?? "TA1 1AA");
 
     const order = await prisma.order.create({
       data: {
-        customerName,
-        customerPhone,
-        customerEmail,
+        customerName: body?.customerName ?? "Vercel Proof",
+        customerPhone: body?.customerPhone ?? "07000000000",
+        customerEmail: body?.customerEmail ?? null,
         postcode,
         totalPence,
         status: body?.status ?? "pending",
         items: {
-          create: items.map((i) => ({
+          create: items.map((i: any) => ({
             productId: i.productId,
             name: i.name,
             pricePence: i.pricePence,
