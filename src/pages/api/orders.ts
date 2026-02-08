@@ -48,6 +48,50 @@ function toNonNegativeInt(input: unknown, fieldName: string): number {
   return n;
 }
 
+function normalizePhone(input: unknown): string {
+  const s = String(input ?? "").trim();
+  if (!s) throw new Error("Missing customerPhone");
+  // Keep as user entered but strip double spaces
+  return s.replace(/\s+/g, " ");
+}
+
+function normalizeEmail(input: unknown): string | null {
+  const s = String(input ?? "").trim();
+  if (!s) return null;
+  return s;
+}
+
+/**
+ * UK postcode normalization:
+ * - uppercase
+ * - remove spaces
+ * - if length >= 5, insert a space before last 3 chars
+ *   e.g. "BA98BW" -> "BA9 8BW"
+ * - if too short/unknown, just uppercase + collapse spaces
+ */
+function normalizeUKPostcode(input: unknown): string {
+  const raw = String(input ?? "").trim();
+  if (!raw) throw new Error("Missing postcode");
+
+  const noSpaces = raw.replace(/\s+/g, "").toUpperCase();
+
+  // Typical UK postcodes are 5-7 chars without spaces.
+  if (noSpaces.length >= 5) {
+    const outward = noSpaces.slice(0, -3);
+    const inward = noSpaces.slice(-3);
+    return `${outward} ${inward}`;
+  }
+
+  // Fallback: keep readable
+  return raw.toUpperCase().replace(/\s+/g, " ");
+}
+
+function normalizeName(input: unknown): string {
+  const s = String(input ?? "").trim();
+  if (!s) throw new Error("Missing customerName");
+  return s.replace(/\s+/g, " ");
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     res.setHeader("Allow", ["POST"]);
@@ -57,10 +101,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const proofTag = `vercel-proof-${new Date().toISOString()}`;
 
-    // Next.js usually parses JSON automatically, but keep safe parse for robustness:
     const body: any = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
 
-    // If you POST real items, we’ll use them; otherwise create a dummy proof item
     const rawItems: any[] =
       Array.isArray(body?.items) && body.items.length > 0
         ? body.items
@@ -68,15 +110,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             {
               productId: "proof-product",
               name: `Proof Item (${proofTag})`,
-              // proof item can be either pricePence or price (GBP) — both supported
               pricePence: 1234,
               quantity: 1,
             },
           ];
 
-    // Normalize items:
-    // - REQUIRE: productId, name, quantity
-    // - ACCEPT: price (GBP) OR priceGbp (GBP) OR pricePence (int)
     const items: NormalizedItem[] = rawItems.map((i: any, idx: number) => {
       const productId = String(i?.productId ?? "").trim();
       const name = String(i?.name ?? "").trim();
@@ -86,8 +124,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const quantity = toPositiveInt(i?.quantity ?? i?.qty, "quantity");
 
-      // Backwards compatible: if pricePence is provided and valid, use it.
-      // Otherwise, accept GBP fields from the frontend and convert to pence.
       let pricePence: number;
 
       if (i?.pricePence !== undefined && i?.pricePence !== null && i?.pricePence !== "") {
@@ -103,15 +139,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return { productId, name, pricePence, quantity };
     });
 
-    // Compute total server-side (authoritative)
     const totalPence = items.reduce<number>((sum, i) => sum + i.pricePence * i.quantity, 0);
+
+    // Normalize customer fields
+    const customerName = body?.customerName ? normalizeName(body.customerName) : "Vercel Proof";
+    const customerPhone = body?.customerPhone ? normalizePhone(body.customerPhone) : "07000000000";
+    const customerEmail = normalizeEmail(body?.customerEmail);
+    const postcode = body?.postcode ? normalizeUKPostcode(body.postcode) : "TA1 1AA";
 
     const order = await prisma.order.create({
       data: {
-        customerName: body?.customerName ?? "Vercel Proof",
-        customerPhone: body?.customerPhone ?? "07000000000",
-        customerEmail: body?.customerEmail ?? null,
-        postcode: body?.postcode ?? "TA1 1AA",
+        customerName,
+        customerPhone,
+        customerEmail,
+        postcode,
         totalPence,
         status: body?.status ?? "pending",
         items: {
@@ -132,6 +173,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       orderId: order.id,
       createdAt: order.createdAt,
       totalPence: order.totalPence,
+      postcode: order.postcode,
       itemCount: order.items.length,
     });
   } catch (err: any) {

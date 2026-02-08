@@ -36,15 +36,21 @@ function outcode(postcode: string) {
 export default function DispatchRouteViewPage() {
   const [take, setTake] = useState(100);
   const [includeDelivered, setIncludeDelivered] = useState(false);
+  const [q, setQ] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
 
-  async function load() {
+  async function load(currentTake = take, currentQ = q) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/orders?take=${take}`);
+      const qs = new URLSearchParams();
+      qs.set("take", String(currentTake));
+      if (currentQ.trim()) qs.set("q", currentQ.trim());
+
+      const res = await fetch(`/api/admin/orders?${qs.toString()}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? json?.message ?? "Failed to load");
       setOrders(json.orders ?? []);
@@ -57,9 +63,13 @@ export default function DispatchRouteViewPage() {
   }
 
   useEffect(() => {
-    void load();
+    void load(take, q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [take]);
+
+  function applySearch() {
+    void load(take, q);
+  }
 
   const filtered = useMemo(() => {
     const list = orders.slice();
@@ -73,7 +83,6 @@ export default function DispatchRouteViewPage() {
       const key = outcode(o.postcode);
       map.set(key, [...(map.get(key) ?? []), o]);
     }
-    // Sort groups by total descending
     const arr = Array.from(map.entries()).map(([key, os]) => ({
       key,
       orders: os.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
@@ -109,12 +118,30 @@ export default function DispatchRouteViewPage() {
           </select>
         </div>
 
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: "1 1 260px", minWidth: 240 }}>
+          <label style={{ fontSize: 14 }}>Search</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") applySearch();
+              }}
+              placeholder="Name, phone, email, postcode…"
+              style={{ padding: 10, width: "100%" }}
+            />
+            <button onClick={applySearch} style={{ padding: "10px 12px" }} disabled={loading}>
+              Go
+            </button>
+          </div>
+        </div>
+
         <label style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: 4 }}>
           <input type="checkbox" checked={includeDelivered} onChange={(e) => setIncludeDelivered(e.target.checked)} />
           Include delivered/cancelled
         </label>
 
-        <button onClick={() => void load()} style={{ padding: "10px 12px" }} disabled={loading}>
+        <button onClick={() => void load(take, q)} style={{ padding: "10px 12px" }} disabled={loading}>
           {loading ? "Loading…" : "Refresh"}
         </button>
 
@@ -163,8 +190,7 @@ export default function DispatchRouteViewPage() {
                   </div>
 
                   <div style={{ marginTop: 6, fontSize: 13 }}>
-                    <b>Items:</b>{" "}
-                    {o.items.map((it) => `${it.quantity}× ${it.name}`).join(", ")}
+                    <b>Items:</b> {o.items.map((it) => `${it.quantity}× ${it.name}`).join(", ")}
                   </div>
                 </div>
               ))}
@@ -174,7 +200,7 @@ export default function DispatchRouteViewPage() {
 
         {!loading && groups.length === 0 ? (
           <div style={{ padding: 16, border: "1px dashed #ccc", borderRadius: 8, opacity: 0.8 }}>
-            No orders match the current filters.
+            No orders match the current filters/search.
           </div>
         ) : null}
       </div>

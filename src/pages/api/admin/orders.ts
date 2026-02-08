@@ -10,7 +10,6 @@ function isAuthed(req: NextApiRequest): boolean {
   const user = process.env.ADMIN_USER;
   const pass = process.env.ADMIN_PASS;
 
-  // If not configured, keep locked
   if (!user || !pass) return false;
 
   const auth = req.headers.authorization;
@@ -48,13 +47,17 @@ function parseDateISO(input: unknown): Date | null {
   return Number.isFinite(d.getTime()) ? d : null;
 }
 
+function normalizeSearch(input: unknown): string {
+  if (typeof input !== "string") return "";
+  return input.trim();
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
     res.setHeader("Allow", ["GET"]);
     return res.status(405).json({ error: "Method Not Allowed" });
   }
 
-  // Self-protect the API (don’t rely on middleware for /api routes)
   if (!isAuthed(req)) {
     return unauthorized(res);
   }
@@ -65,6 +68,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const from = parseDateISO(req.query.from);
     const to = parseDateISO(req.query.to);
+
+    const q = normalizeSearch(req.query.q);
 
     const takeRaw = req.query.take;
     const take =
@@ -86,6 +91,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       where.createdAt = {};
       if (from) where.createdAt.gte = from;
       if (to) where.createdAt.lte = to;
+    }
+
+    if (q) {
+      // MySQL: case-insensitive typically; Prisma uses contains -> LIKE %q%
+      where.OR = [
+        { customerName: { contains: q } },
+        { customerPhone: { contains: q } },
+        { customerEmail: { contains: q } },
+        { postcode: { contains: q } },
+      ];
     }
 
     const orders = await prisma.order.findMany({
