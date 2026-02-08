@@ -1,6 +1,10 @@
  import type { NextApiRequest, NextApiResponse } from "next";
 import { prisma } from "@/lib/prisma";
 
+export const config = {
+  runtime: "nodejs",
+};
+
 const ALLOWED_STATUSES = [
   "pending",
   "confirmed",

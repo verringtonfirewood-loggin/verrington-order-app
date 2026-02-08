@@ -1,6 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { prisma } from "@/lib/prisma";
 
+export const config = {
+  runtime: "nodejs",
+};
+
 function unauthorized(res: NextApiResponse) {
   res.setHeader("WWW-Authenticate", 'Basic realm="Verrington Admin"');
   return res.status(401).json({ error: "Authentication required" });
