@@ -74,10 +74,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const proofTag = `vercel-proof-${new Date().toISOString()}`;
 
-    // Next.js usually parses JSON automatically, but keep safe parse:
     const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
 
-    // If you POST real items later, we’ll use them; otherwise create a dummy proof item
     const rawItems =
       Array.isArray(body?.items) && body.items.length > 0
         ? body.items
@@ -85,15 +83,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             {
               productId: "proof-product",
               name: `Proof Item (${proofTag})`,
-              // proof item can be either pricePence or price (GBP) — both supported
               pricePence: 1234,
               quantity: 1,
             },
           ];
 
-    // Normalize items:
-    // - REQUIRE: productId, name, quantity
-    // - ACCEPT: price (GBP) OR priceGbp (GBP) OR pricePence (int)
     const items = rawItems.map((i: any, idx: number) => {
       const productId = String(i?.productId ?? "").trim();
       const name = String(i?.name ?? "").trim();
@@ -119,7 +113,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     // Compute total server-side (authoritative)
-    const totalPence = items.reduce<number>((sum, i) => sum + i.pricePence * i.quantity, 0);
+    const totalPence = items.reduce((sum: number, i: any) => sum + i.pricePence * i.quantity, 0);
 
     // Normalize postcode (feature A)
     const postcode = normalizeUKPostcode(body?.postcode ?? "TA1 1AA");
