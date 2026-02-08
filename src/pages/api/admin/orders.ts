@@ -1,6 +1,20 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { prisma } from "@/lib/prisma";
 
+function parseIds(idsRaw: unknown): string[] {
+  if (typeof idsRaw !== "string") return [];
+  return idsRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function parseDateISO(input: unknown): Date | null {
+  if (typeof input !== "string" || !input.trim()) return null;
+  const d = new Date(input);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
     res.setHeader("Allow", ["GET"]);
@@ -8,15 +22,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    const ids = parseIds(req.query.ids);
+    const status = typeof req.query.status === "string" ? req.query.status.trim() : "";
+
+    const from = parseDateISO(req.query.from);
+    const to = parseDateISO(req.query.to);
+
     const takeRaw = req.query.take;
     const take =
       typeof takeRaw === "string" && Number.isInteger(Number(takeRaw))
         ? Math.max(1, Math.min(200, Number(takeRaw)))
         : 50;
 
+    const where: any = {};
+
+    if (ids.length > 0) {
+      where.id = { in: ids };
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (from || to) {
+      where.createdAt = {};
+      if (from) where.createdAt.gte = from;
+      if (to) where.createdAt.lte = to;
+    }
+
     const orders = await prisma.order.findMany({
+      where,
       orderBy: { createdAt: "desc" },
-      take,
+      take: ids.length > 0 ? ids.length : take,
       include: { items: true },
     });
 
