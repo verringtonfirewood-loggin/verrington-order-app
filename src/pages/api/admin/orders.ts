@@ -1,21 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { prisma } from "@/lib/prisma";
 
-function isAuthed(req: NextApiRequest) {
-  const expected = process.env.ADMIN_TOKEN;
-  const token = req.headers["x-admin-token"];
-  if (!expected) return false;
-  return typeof token === "string" && token === expected;
-}
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
     res.setHeader("Allow", ["GET"]);
     return res.status(405).json({ error: "Method Not Allowed" });
-  }
-
-  if (!isAuthed(req)) {
-    return res.status(401).json({ error: "Unauthorized" });
   }
 
   try {

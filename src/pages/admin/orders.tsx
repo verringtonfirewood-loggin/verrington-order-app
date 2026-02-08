@@ -25,29 +25,17 @@ function formatGBP(pence: number) {
 }
 
 export default function AdminOrdersPage() {
-  const [token, setToken] = useState("");
   const [take, setTake] = useState(50);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
 
-  useEffect(() => {
-    const t = window.localStorage.getItem("vf_admin_token") ?? "";
-    setToken(t);
-  }, []);
-
-  function saveToken() {
-    window.localStorage.setItem("vf_admin_token", token);
-  }
-
-  async function load() {
+  async function load(currentTake = take) {
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(`/api/admin/orders?take=${take}`, {
-        headers: { "x-admin-token": token },
-      });
+      const res = await fetch(`/api/admin/orders?take=${currentTake}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? json?.message ?? "Failed to load");
       setOrders(json.orders ?? []);
@@ -58,6 +46,18 @@ export default function AdminOrdersPage() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    // Load on first view
+    void load(take);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // Reload when "take" changes
+    void load(take);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [take]);
 
   const totals = useMemo(() => {
     const count = orders.length;
@@ -71,27 +71,6 @@ export default function AdminOrdersPage() {
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end", marginBottom: 16 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <label style={{ fontSize: 14 }}>Admin token</label>
-          <input
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="Paste ADMIN_TOKEN here"
-            style={{ padding: 10, width: 360 }}
-          />
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={saveToken} style={{ padding: "10px 12px" }}>
-              Save token
-            </button>
-            <button onClick={load} style={{ padding: "10px 12px" }} disabled={!token || loading}>
-              {loading ? "Loading…" : "Load orders"}
-            </button>
-          </div>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>
-            This page calls <code>/api/admin/orders</code> with <code>x-admin-token</code>.
-          </div>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <label style={{ fontSize: 14 }}>Show last</label>
           <select value={take} onChange={(e) => setTake(Number(e.target.value))} style={{ padding: 10, width: 140 }}>
             <option value={25}>25</option>
@@ -100,6 +79,10 @@ export default function AdminOrdersPage() {
             <option value={200}>200</option>
           </select>
         </div>
+
+        <button onClick={() => void load(take)} style={{ padding: "10px 12px" }} disabled={loading}>
+          {loading ? "Loading…" : "Refresh"}
+        </button>
 
         <div style={{ marginLeft: "auto", textAlign: "right" }}>
           <div style={{ fontSize: 14, opacity: 0.8 }}>Loaded orders: {totals.count}</div>
@@ -111,7 +94,7 @@ export default function AdminOrdersPage() {
         <div style={{ padding: 12, border: "1px solid #f99", background: "#fee", marginBottom: 16 }}>
           <b>Error:</b> {error}
           <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
-            Ensure Vercel env var <code>ADMIN_TOKEN</code> is set and matches what you paste here.
+            If you see a 401, it means the browser hasn’t sent Basic Auth yet — reload and re-enter credentials.
           </div>
         </div>
       ) : null}
@@ -161,6 +144,12 @@ export default function AdminOrdersPage() {
             </div>
           </div>
         ))}
+
+        {!loading && orders.length === 0 ? (
+          <div style={{ padding: 16, border: "1px dashed #ccc", borderRadius: 8, opacity: 0.8 }}>
+            No orders found.
+          </div>
+        ) : null}
       </div>
     </main>
   );
