@@ -43,12 +43,15 @@ export default function AdminOrdersPage() {
   async function load() {
     setLoading(true);
     setError(null);
+
     try {
       const res = await fetch(`/api/admin/orders?take=${take}`, {
         headers: { "x-admin-token": token },
       });
+
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? json?.message ?? "Failed to load");
+
       setOrders(json.orders ?? []);
     } catch (e: any) {
       setError(e?.message ?? String(e));
@@ -86,7 +89,7 @@ export default function AdminOrdersPage() {
             </button>
           </div>
           <div style={{ fontSize: 12, opacity: 0.7 }}>
-            Uses <code>x-admin-token</code> header for <code>/api/admin/orders</code>.
+            This page calls <code>/api/admin/orders</code> with an <code>x-admin-token</code> header.
           </div>
         </div>
 
@@ -110,7 +113,7 @@ export default function AdminOrdersPage() {
         <div style={{ padding: 12, border: "1px solid #f99", background: "#fee", marginBottom: 16 }}>
           <b>Error:</b> {error}
           <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
-            Make sure Vercel env var <code>ADMIN_TOKEN</code> is set and matches the token you paste here.
+            Ensure Vercel env var <code>ADMIN_TOKEN</code> is set and matches what you paste here.
           </div>
         </div>
       ) : null}
