@@ -22,7 +22,7 @@ export function middleware(req: NextRequest) {
 
   const base64 = auth.slice("Basic ".length);
 
-  // Middleware runs on Edge runtime: use atob (NOT Buffer)
+  // Edge runtime: use atob (NOT Buffer)
   let decoded = "";
   try {
     decoded = atob(base64);
