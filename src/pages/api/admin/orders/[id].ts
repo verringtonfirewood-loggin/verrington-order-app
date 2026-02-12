@@ -1,90 +1,138 @@
- import type { NextApiRequest, NextApiResponse } from "next";
+import type { NextApiRequest, NextApiResponse } from "next";
 import { prisma } from "@/lib/prisma";
-
-export const config = {
-  runtime: "nodejs",
-};
+import { sendCustomerStatusUpdateEmail } from "@/lib/mailer";
 
 const ALLOWED_STATUSES = [
   "pending",
   "confirmed",
+  "paid",
   "out-for-delivery",
   "delivered",
   "cancelled",
 ] as const;
 
-type AllowedStatus = (typeof ALLOWED_STATUSES)[number];
+type OrderStatus = (typeof ALLOWED_STATUSES)[number];
 
-function isAllowedStatus(s: unknown): s is AllowedStatus {
-  return typeof s === "string" && (ALLOWED_STATUSES as readonly string[]).includes(s);
+function isAllowedStatus(s: any): s is OrderStatus {
+  return ALLOWED_STATUSES.includes(String(s));
 }
 
-function unauthorized(res: NextApiResponse) {
-  res.setHeader("WWW-Authenticate", 'Basic realm="Verrington Admin"');
-  return res.status(401).json({ error: "Authentication required" });
-}
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  const { id } = req.query;
 
-function isAuthed(req: NextApiRequest): boolean {
-  const user = process.env.ADMIN_USER;
-  const pass = process.env.ADMIN_PASS;
-
-  if (!user || !pass) return false;
-
-  const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith("Basic ")) return false;
-
-  const base64 = auth.slice("Basic ".length);
-
-  let decoded = "";
-  try {
-    decoded = Buffer.from(base64, "base64").toString("utf8");
-  } catch {
-    return false;
+  if (typeof id !== "string") {
+    return res.status(400).json({ error: "Invalid order id" });
   }
 
-  const idx = decoded.indexOf(":");
-  if (idx === -1) return false;
-
-  const u = decoded.slice(0, idx);
-  const p = decoded.slice(idx + 1);
-
-  return u === user && p === pass;
-}
-
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const id = typeof req.query.id === "string" ? req.query.id : null;
-  if (!id) return res.status(400).json({ error: "Missing order id" });
-
-  if (req.method !== "PATCH") {
-    res.setHeader("Allow", ["PATCH"]);
-    return res.status(405).json({ error: "Method Not Allowed" });
-  }
-
-  // Self-protect the API
-  if (!isAuthed(req)) {
-    return unauthorized(res);
-  }
-
-  try {
-    const body: any = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-    const status = body?.status;
-
-    if (!isAllowedStatus(status)) {
-      return res.status(400).json({
-        error: "Invalid status",
-        allowed: ALLOWED_STATUSES,
+  // ---------------- GET ----------------
+  if (req.method === "GET") {
+    try {
+      const order = await prisma.order.findUnique({
+        where: { id },
+        include: { items: true },
       });
+
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+
+      return res.status(200).json(order);
+    } catch (err) {
+      console.error("GET /api/admin/orders/[id] failed:", err);
+      return res.status(500).json({ error: "Server error" });
     }
-
-    const updated = await prisma.order.update({
-      where: { id },
-      data: { status },
-      include: { items: true },
-    });
-
-    return res.status(200).json({ ok: true, order: updated });
-  } catch (err: any) {
-    console.error("PATCH /api/admin/orders/[id] failed:", err);
-    return res.status(500).json({ ok: false, message: err?.message ?? String(err) });
   }
+
+  // ---------------- PATCH ----------------
+  if (req.method === "PATCH") {
+    try {
+      const body =
+        typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+
+      const nextStatus = body?.status;
+
+      if (!isAllowedStatus(nextStatus)) {
+        return res.status(400).json({
+          error: "Invalid status",
+          allowed: ALLOWED_STATUSES,
+        });
+      }
+
+      const existing = await prisma.order.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          status: true,
+          customerEmail: true,
+          customerName: true,
+          postcode: true,
+        },
+      });
+
+      if (!existing) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+
+      const updated = await prisma.order.update({
+        where: { id },
+        data: { status: nextStatus },
+        include: { items: true },
+      });
+
+      // ---- CUSTOMER STATUS EMAIL (filtered + safe) ----
+      const EMAIL_STATUSES = new Set([
+        "paid",
+        "out-for-delivery",
+        "delivered",
+        "cancelled",
+      ]);
+
+      const adminEmails = new Set(
+        [
+          process.env.ADMIN_NOTIFY_TO,
+          process.env.SMTP_USER,
+          "hello@verringtonfirewood.co.uk",
+          "verringtonfirewood@gmail.com",
+        ]
+          .filter(Boolean)
+          .map((e) => String(e).toLowerCase())
+      );
+
+      const customerEmail = String(existing.customerEmail || "").toLowerCase();
+
+      const shouldEmailCustomer =
+        String(process.env.SEND_CUSTOMER_EMAIL || "false") === "true" &&
+        !!existing.customerEmail &&
+        String(existing.status) !== String(nextStatus) &&
+        EMAIL_STATUSES.has(String(nextStatus)) &&
+        !adminEmails.has(customerEmail);
+
+      if (shouldEmailCustomer) {
+        try {
+          await sendCustomerStatusUpdateEmail({
+            to: existing.customerEmail!,
+            orderId: existing.id,
+            customerName: existing.customerName ?? undefined,
+            postcode: existing.postcode ?? undefined,
+            status: String(nextStatus),
+          });
+        } catch (e) {
+          console.error("Customer status email failed:", e);
+        }
+      }
+      // ---- END CUSTOMER STATUS EMAIL ----
+
+      return res.status(200).json({ ok: true, order: updated });
+    } catch (err: any) {
+      console.error("PATCH /api/admin/orders/[id] failed:", err);
+      return res.status(500).json({ error: err?.message ?? "Server error" });
+    }
+  }
+
+  // ---------------- METHOD NOT ALLOWED ----------------
+  res.setHeader("Allow", ["GET", "PATCH"]);
+  return res.status(405).json({ error: "Method Not Allowed" });
 }

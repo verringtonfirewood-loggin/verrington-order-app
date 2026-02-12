@@ -1,23 +1,35 @@
 generator client {
-  provider   = "prisma-client-js"
-  engineType = "binary"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "mysql"
 }
 
-model Order {
-  id            String      @id @default(cuid())
-  createdAt     DateTime    @default(now())
-  customerName  String
-  customerPhone String
-  customerEmail String?
-  postcode      String
-  totalPence    Int
-  status        String      @default("pending")
+/**
+ * Prisma 7: do NOT define datasource.url here.
+ * Datasource configuration lives in prisma.config.ts
+ */
 
-  items         OrderItem[]
+model Order {
+  id              String   @id @default(cuid())
+  createdAt        DateTime @default(now())
+
+  customerName     String
+  customerPhone    String
+  customerEmail    String?
+  postcode         String
+
+  status           String   @default("NEW")
+
+  subtotalPence    Int      @default(0)
+  deliveryFeePence Int      @default(0)
+  totalPence       Int
+
+  preferredDay     String?
+  deliveryNotes    String?
+
+  items            OrderItem[]
 
   @@index([createdAt])
 }
@@ -33,4 +45,19 @@ model OrderItem {
   order      Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  pricePence  Int
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  imageAlt    String?
+  imageUrl    String?
+
+  @@index([isActive, sortOrder])
 }

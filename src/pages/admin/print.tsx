@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import type { GetServerSideProps, NextPage } from "next";
 
 type OrderItem = {
   id: string;
+  orderId: string;
   productId: string;
   name: string;
   pricePence: number;
@@ -10,155 +11,280 @@ type OrderItem = {
 
 type Order = {
   id: string;
-  createdAt: string;
-  customerName: string;
-  customerPhone: string;
-  customerEmail?: string | null;
-  postcode: string;
-  totalPence: number;
-  status: string;
-  items: OrderItem[];
+  createdAt?: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  postcode?: string;
+  totalPence?: number;
+  status?: string;
+  items?: OrderItem[];
 };
 
-function formatGBP(pence: number) {
-  return `£${(pence / 100).toFixed(2)}`;
+type Props = {
+  orders: Order[];
+  missingIds: string[];
+};
+
+function getBaseUrl(req: any) {
+  const proto = (req.headers["x-forwarded-proto"] as string) || "http";
+  const host =
+    (req.headers["x-forwarded-host"] as string) ||
+    (req.headers["host"] as string);
+  return `${proto}://${host}`;
 }
 
-function getIdsFromLocation(): string[] {
-  const url = new URL(window.location.href);
-  const raw = url.searchParams.get("ids") ?? "";
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+function formatGBP(pence?: number) {
+  const value = typeof pence === "number" ? pence / 100 : 0;
+  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(value);
 }
 
-export default function PrintOrdersPage() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const ids = useMemo(() => (typeof window === "undefined" ? [] : getIdsFromLocation()), []);
+function formatDate(iso?: string) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-GB", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(d);
+}
 
-  useEffect(() => {
-    async function run() {
-      setLoading(true);
-      setError(null);
-      try {
-        if (ids.length === 0) {
-          setOrders([]);
-          return;
-        }
-        const res = await fetch(`/api/admin/orders?ids=${encodeURIComponent(ids.join(","))}`);
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error ?? json?.message ?? "Failed to load");
-        setOrders(json.orders ?? []);
-      } catch (e: any) {
-        setError(e?.message ?? String(e));
-        setOrders([]);
-      } finally {
-        setLoading(false);
-      }
-    }
-    void run();
-  }, [ids]);
+function normalisePostcode(pc?: string) {
+  return (pc || "").trim().toUpperCase().replace(/\s+/g, " ");
+}
 
-  const total = useMemo(() => orders.reduce((s, o) => s + (o.totalPence ?? 0), 0), [orders]);
-
+const PrintPage: NextPage<Props> = ({ orders, missingIds }) => {
   return (
-    <main style={{ padding: 16, fontFamily: "system-ui, Arial" }}>
+    <div>
       <style>{`
+        /* Screen wrapper */
+        .wrap { max-width: 900px; margin: 0 auto; padding: 16px; }
+        .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+        .btn { padding: 10px 14px; border-radius: 8px; border: 1px solid #111; background: #111; color: white; cursor: pointer; }
+        .note { opacity: 0.7; font-size: 12px; }
+
+        /* Print */
         @media print {
-          .no-print { display: none !important; }
-          body { margin: 0; }
+          .wrap { max-width: none; margin: 0; padding: 0; }
+          .toolbar { display: none !important; }
+          .page { page-break-after: always; }
+          .page:last-child { page-break-after: auto; }
+        }
+
+        /* Page layout */
+        .page {
+          border: 1px solid #e5e5e5;
+          border-radius: 12px;
+          padding: 16px;
+          margin-bottom: 16px;
+        }
+
+        .head {
+          display: flex;
+          gap: 16px;
+          align-items: flex-start;
+          justify-content: space-between;
+          border-bottom: 1px solid #eee;
+          padding-bottom: 12px;
+          margin-bottom: 12px;
+        }
+
+        .postcode {
+          font-size: 44px;
+          font-weight: 900;
+          letter-spacing: 1px;
+          line-height: 1;
+        }
+
+        .meta {
+          text-align: right;
+          font-size: 12px;
+          opacity: 0.8;
+        }
+
+        .grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .card {
+          border: 1px solid #eee;
+          border-radius: 12px;
+          padding: 12px;
+        }
+
+        .label { font-size: 11px; opacity: 0.7; margin-bottom: 6px; }
+        .value { font-size: 14px; }
+        .strong { font-weight: 700; }
+
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px 10px; border-top: 1px solid #eee; font-size: 13px; vertical-align: top; }
+        thead th { background: #fafafa; border-top: none; text-align: left; font-size: 12px; opacity: 0.8; }
+        .right { text-align: right; font-variant-numeric: tabular-nums; }
+
+        .totalRow {
+          border-top: 2px solid #111;
+          font-weight: 800;
         }
       `}</style>
 
-      <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 12 }}>
-        <div>
-          <h1 style={{ margin: 0 }}>Print — Delivery Sheets</h1>
-          <div style={{ opacity: 0.7, fontSize: 13 }}>
-            Orders: {orders.length} • Total: {formatGBP(total)}
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => window.print()} style={{ padding: "10px 12px" }}>
+      <div className="wrap">
+        <div className="toolbar">
+          <button className="btn" onClick={() => window.print()}>
             Print
           </button>
-          <a href="/admin/orders" style={{ padding: "10px 12px", display: "inline-block" }}>
-            Back to admin
-          </a>
-        </div>
-      </div>
-
-      {loading ? <div style={{ marginTop: 16 }}>Loading…</div> : null}
-      {error ? (
-        <div style={{ marginTop: 16, padding: 12, border: "1px solid #f99", background: "#fee" }}>
-          <b>Error:</b> {error}
-        </div>
-      ) : null}
-
-      <div style={{ marginTop: 16, display: "grid", gap: 14 }}>
-        {orders.map((o) => (
-          <section key={o.id} style={{ border: "1px solid #000", padding: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-              <div>
-                <div style={{ fontSize: 20, fontWeight: 900 }}>{o.customerName}</div>
-                <div style={{ fontSize: 14 }}>
-                  {o.customerPhone}
-                  {o.customerEmail ? ` • ${o.customerEmail}` : ""}
-                </div>
-                <div style={{ fontSize: 14 }}>
-                  <b>Postcode:</b> {o.postcode}
-                </div>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>
-                  {new Date(o.createdAt).toLocaleString()} • Status: {o.status} • Order ID: {o.id}
-                </div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 18, fontWeight: 900 }}>{formatGBP(o.totalPence)}</div>
-                <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>Driver notes:</div>
-                <div style={{ height: 44, border: "1px solid #000" }} />
-              </div>
-            </div>
-
-            <div style={{ marginTop: 10 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr style={{ textAlign: "left" }}>
-                    <th style={{ borderBottom: "1px solid #000", padding: "6px 0" }}>Item</th>
-                    <th style={{ borderBottom: "1px solid #000", padding: "6px 0", width: 60 }}>Qty</th>
-                    <th style={{ borderBottom: "1px solid #000", padding: "6px 0", width: 120 }}>Unit</th>
-                    <th style={{ borderBottom: "1px solid #000", padding: "6px 0", width: 120 }}>Line</th>
-                    <th style={{ borderBottom: "1px solid #000", padding: "6px 0", width: 100 }}>Picked</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {o.items.map((it) => (
-                    <tr key={it.id}>
-                      <td style={{ padding: "8px 0" }}>
-                        <div style={{ fontWeight: 700 }}>{it.name}</div>
-                        <div style={{ fontSize: 12, opacity: 0.7 }}>{it.productId}</div>
-                      </td>
-                      <td style={{ padding: "8px 0" }}>{it.quantity}</td>
-                      <td style={{ padding: "8px 0" }}>{formatGBP(it.pricePence)}</td>
-                      <td style={{ padding: "8px 0" }}>{formatGBP(it.pricePence * it.quantity)}</td>
-                      <td style={{ padding: "8px 0" }}>
-                        <div style={{ width: 18, height: 18, border: "1px solid #000" }} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        ))}
-
-        {!loading && orders.length === 0 ? (
-          <div style={{ padding: 16, border: "1px dashed #999", opacity: 0.8 }}>
-            No order ids provided. Go back to admin and select orders to print.
+          <div className="note">
+            Tip: Use your browser’s print dialog. Each order prints on its own page.
           </div>
-        ) : null}
+        </div>
+
+        {missingIds.length > 0 && (
+          <div style={{ marginBottom: 12, color: "crimson" }}>
+            Could not load {missingIds.length} order(s): {missingIds.join(", ")}
+          </div>
+        )}
+
+        {orders.length === 0 ? (
+          <div>No orders to print.</div>
+        ) : (
+          orders.map((o) => {
+            const items = o.items ?? [];
+            const itemsTotal = items.reduce((sum, it) => sum + (it.pricePence ?? 0) * (it.quantity ?? 0), 0);
+            const total = typeof o.totalPence === "number" ? o.totalPence : itemsTotal;
+
+            return (
+              <div key={o.id} className="page">
+                <div className="head">
+                  <div>
+                    <div className="postcode">{normalisePostcode(o.postcode) || "—"}</div>
+                    <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
+                      Status: <span className="strong">{String(o.status || "—").toUpperCase()}</span>
+                    </div>
+                  </div>
+
+                  <div className="meta">
+                    <div><span className="strong">Order:</span> {o.id.slice(0, 8)}</div>
+                    <div><span className="strong">Created:</span> {formatDate(o.createdAt)}</div>
+                  </div>
+                </div>
+
+                <div className="grid">
+                  <div className="card">
+                    <div className="label">Customer</div>
+                    <div className="value strong">{o.customerName || "—"}</div>
+                    <div className="value">{o.customerPhone || "—"}</div>
+                    <div className="value">{o.customerEmail || "—"}</div>
+                    <div className="value">{normalisePostcode(o.postcode) || "—"}</div>
+                  </div>
+
+                  <div className="card">
+                    <div className="label">Driver notes</div>
+                    <div className="value" style={{ height: 72, opacity: 0.8 }}>
+                      _______________________________________________
+                      <br />
+                      _______________________________________________
+                    </div>
+                  </div>
+                </div>
+
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th className="right">Qty</th>
+                      <th className="right">Unit</th>
+                      <th className="right">Line</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((it) => {
+                      const line = (it.pricePence ?? 0) * (it.quantity ?? 0);
+                      return (
+                        <tr key={it.id}>
+                          <td>{it.name.split("(")[0].trim()}</td>
+                          <td className="right">{it.quantity}</td>
+                          <td className="right">{formatGBP(it.pricePence)}</td>
+                          <td className="right">{formatGBP(line)}</td>
+                        </tr>
+                      );
+                    })}
+
+                    <tr className="totalRow">
+                      <td>Total</td>
+                      <td />
+                      <td />
+                      <td className="right">{formatGBP(total)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            );
+          })
+        )}
       </div>
-    </main>
+    </div>
   );
-}
+};
+
+export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
+  const req = ctx.req as any;
+  const baseUrl = getBaseUrl(req);
+  const authorization = (req.headers["authorization"] as string) || "";
+
+  const idsParam = typeof ctx.query.ids === "string" ? ctx.query.ids : "";
+  const ids = idsParam
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  // Fetch each order detail from your existing API
+  const missingIds: string[] = [];
+  const orders: Order[] = [];
+
+  // small concurrency to keep SSR fast + safe
+  const concurrency = 6;
+  let i = 0;
+
+  async function worker() {
+    while (i < ids.length) {
+      const idx = i++;
+      const id = ids[idx];
+      try {
+        const r = await fetch(`${baseUrl}/api/admin/orders/${encodeURIComponent(id)}`, {
+          headers: authorization ? { authorization } : undefined,
+        });
+        if (!r.ok) {
+          missingIds.push(id);
+          continue;
+        }
+        const order = (await r.json()) as Order;
+        orders.push(order);
+      } catch {
+        missingIds.push(id);
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, ids.length || 1) }, () => worker()));
+
+  // Keep print order stable: sort by postcode, then createdAt
+  orders.sort((a, b) => {
+    const ap = normalisePostcode(a.postcode);
+    const bp = normalisePostcode(b.postcode);
+    if (ap < bp) return -1;
+    if (ap > bp) return 1;
+
+    const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return at - bt;
+  });
+
+  return { props: { orders, missingIds } };
+};
+
+export default PrintPage;

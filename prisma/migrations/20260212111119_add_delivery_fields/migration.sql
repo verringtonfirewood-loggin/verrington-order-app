@@ -1,0 +1,6 @@
+-- AlterTable
+ALTER TABLE `Order` ADD COLUMN `deliveryFeePence` INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN `deliveryNotes` VARCHAR(191) NULL,
+    ADD COLUMN `preferredDay` VARCHAR(191) NULL,
+    ADD COLUMN `subtotalPence` INTEGER NOT NULL DEFAULT 0,
+    MODIFY `status` VARCHAR(191) NOT NULL DEFAULT 'NEW';

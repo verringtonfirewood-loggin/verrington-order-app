@@ -1,283 +1,178 @@
-"use client";
-
 import Image from "next/image";
-import { useMemo, useState } from "react";
-
-type Product = {
-  id: string;
-  name: string;
-  description: string;
-  price: number; // GBP
-  checkoutUrl: string;
-};
-
-const PRODUCTS: Product[] = [
-  {
-    id: "net",
-    name: "Net of Logs",
-    description: "Perfect for occasional fires. Easy to store and handle.",
-    price: 20,
-    checkoutUrl: "https://www.verringtonfirewood.co.uk/product/14196058/large-20kg-net-of-logs",
-  },
-  {
-    id: "bulk-bag",
-    name: "Bulk Bag of Logs",
-    description: "Best value for regular burners. Seasoned hardwood.",
-    price: 100,
-    checkoutUrl: "https://www.verringtonfirewood.co.uk/product/14196007/back-in-stock-premium-dumpy-bag-of-fully-seasoned-firewood",
-  },
-  {
-    id: "ibc-crate",
-    name: "IBC Crate",
-    description:
-      "A full IBC Crate worth of loose-tipped, fully seasoned, beautifully dry logs, cut to practical lengths.",
-    price: 195,
-    checkoutUrl: "https://www.verringtonfirewood.co.uk/product/14188502/back-in-stock-ibc-crate-approx-1-2-cube-of-logs",
-  },
-];
+import Link from "next/link";
 
 export default function Home() {
-  const [productId, setProductId] = useState(PRODUCTS[0]?.id ?? "");
-  const [quantity, setQuantity] = useState(1);
-
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
-  const [customerEmail, setCustomerEmail] = useState("");
-  const [postcode, setPostcode] = useState("");
-
-  const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-
-  const selected = useMemo(
-    () => PRODUCTS.find((p) => p.id === productId) ?? PRODUCTS[0],
-    [productId]
-  );
-
-  const total = (selected?.price ?? 0) * quantity;
-
-  async function submitOrder() {
-    setMessage(null);
-
-    if (!selected) {
-      setMessage("Select a product.");
-      return;
-    }
-
-    if (!customerName.trim() || !customerPhone.trim() || !postcode.trim()) {
-      setMessage("Please fill in name, phone, and postcode.");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      const res = await fetch("/api/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customerName,
-          customerPhone,
-          customerEmail: customerEmail.trim() || undefined,
-          postcode,
-          items: [
-            {
-              productId: selected.id,
-              name: selected.name,
-              price: selected.price,
-              quantity,
-            },
-          ],
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setMessage(data?.error ?? "Order failed.");
-        return;
-      }
-
-      setMessage(`Order received ✅ (ID: ${data.orderId})`);
-      // leave fields as-is for now (useful during testing)
-    } catch {
-      setMessage("Network error.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   return (
-    <main className="min-h-screen p-10">
-      <div className="mx-auto max-w-4xl">
-        {/* Header */}
-        <div className="flex items-center gap-4">
-          <Image
-            src="/logo.png"
-            alt="Verrington Firewood"
-            width={180}
-            height={60}
-            priority
-          />
-          <div>
-            <h1 className="text-3xl font-bold" style={{ color: "var(--vf-text)" }}>
-              Verrington Order App
-            </h1>
-            <p className="mt-1 text-sm" style={{ color: "var(--vf-muted)" }}>
-              Online ordering for seasoned firewood
-            </p>
+    <main className="min-h-screen bg-[var(--vf-bg)] text-[var(--vf-text)]">
+      {/* Header */}
+      <header className="sticky top-0 z-10 border-b bg-[color:var(--vf-bg)]/90 backdrop-blur">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <Image
+              src="/logo.png"
+              alt="Verrington Firewood"
+              width={160}
+              height={54}
+              priority
+            />
+            <div className="leading-tight">
+              <div className="font-extrabold tracking-tight">Verrington Firewood</div>
+              <div className="text-sm text-[var(--vf-muted)]">
+                South Somerset &amp; North Dorset
+              </div>
+            </div>
+          </div>
+
+          <nav className="flex items-center gap-2">
+            <Link
+              href="/prices"
+              className="rounded-xl px-3 py-2 text-sm font-semibold hover:bg-black/5"
+            >
+              Prices
+            </Link>
+            <Link
+              href="/delivery"
+              className="rounded-xl px-3 py-2 text-sm font-semibold hover:bg-black/5"
+            >
+              Delivery areas
+            </Link>
+            <Link
+              href="/order"
+              className="rounded-xl px-4 py-2 text-sm font-semibold"
+              style={{
+                background: "var(--vf-primary)",
+                color: "var(--vf-primary-contrast)",
+              }}
+            >
+              Order firewood
+            </Link>
+          </nav>
+        </div>
+      </header>
+
+      {/* Hero (log-wall banner) */}
+      <section className="px-6 py-12">
+        <div className="mx-auto max-w-5xl overflow-hidden rounded-3xl border shadow-sm">
+          <div
+            className="relative min-h-[360px] sm:min-h-[420px] bg-cover bg-center"
+            style={{ backgroundImage: "url('/log-wall.jpg')" }}
+          >
+            {/* Overlays for readability */}
+            <div className="absolute inset-0 bg-black/40" />
+            <div
+              className="absolute inset-0"
+              style={{
+                background:
+                  "linear-gradient(90deg, rgba(22,16,10,0.78) 0%, rgba(22,16,10,0.25) 55%, rgba(22,16,10,0.60) 100%)",
+              }}
+            />
+            <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/35 to-transparent" />
+            <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/30 to-transparent" />
+
+            <div className="relative p-8 sm:p-10">
+              <div
+                className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm font-semibold"
+                style={{
+                  borderColor: "rgba(255,255,255,0.22)",
+                  background: "rgba(0,0,0,0.25)",
+                  color: "rgba(255,255,255,0.92)",
+                }}
+              >
+                <span>🔥</span>
+                <span>Ready to burn • Local • Reliable</span>
+              </div>
+
+              <h1 className="mt-4 text-4xl font-extrabold tracking-tight text-white drop-shadow sm:text-5xl">
+                Seasoned Firewood Delivered
+              </h1>
+
+              <p className="mt-3 max-w-2xl text-base leading-relaxed text-white/90 drop-shadow">
+                Order in minutes. We’ll confirm your delivery day and keep you updated.
+                Serving{" "}
+                <span className="font-semibold text-white">South Somerset</span>{" "}
+                and{" "}
+                <span className="font-semibold text-white">North Dorset</span>.
+              </p>
+
+              <div className="mt-6 flex flex-wrap gap-3">
+                <Link
+                  href="/order"
+                  className="rounded-xl px-5 py-3 text-sm font-semibold"
+                  style={{
+                    background: "var(--vf-primary)",
+                    color: "var(--vf-primary-contrast)",
+                  }}
+                >
+                  Order firewood
+                </Link>
+
+                <Link
+                  href="/delivery"
+                  className="rounded-xl border px-5 py-3 text-sm font-semibold hover:bg-white/10"
+                  style={{
+                    borderColor: "rgba(255,255,255,0.28)",
+                    color: "rgba(255,255,255,0.92)",
+                  }}
+                >
+                  Check delivery areas
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Products */}
-        <section className="mt-12">
-          <h2 className="text-2xl font-semibold mb-6">Products</h2>
-
-          <div className="grid gap-6 sm:grid-cols-2">
-            {PRODUCTS.map((product) => (
-              <div
-                key={product.id}
-                className="rounded-2xl border p-6 flex flex-col justify-between"
-                style={{ background: "var(--vf-surface)" }}
-              >
-                <div>
-                  <h3 className="text-lg font-semibold">{product.name}</h3>
-                  <p className="mt-2 text-sm" style={{ color: "var(--vf-muted)" }}>
-                    {product.description}
-                  </p>
-                </div>
-
-                <div className="mt-6 flex items-center justify-between">
-                  <span className="text-xl font-bold">£{product.price}</span>
-
-                  <a
-                    href={product.checkoutUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-xl px-4 py-2 text-sm font-semibold"
-                    style={{
-                      background: "var(--vf-primary)",
-                      color: "var(--vf-primary-contrast)",
-                    }}
-                  >
-                    Order on Webador
-                  </a>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <p className="mt-6 text-sm" style={{ color: "var(--vf-muted)" }}>
-            Clicking “Order on Webador” opens secure checkout in a new tab.
-          </p>
-        </section>
-
-        {/* Internal order capture (for admin pipeline) */}
-        <section className="mt-12">
-          <h2 className="text-2xl font-semibold mb-6">Send order to Admin (internal)</h2>
-
-          <div className="rounded-2xl border p-6" style={{ background: "var(--vf-surface)" }}>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="text-sm">
-                <span className="block mb-1" style={{ color: "var(--vf-muted)" }}>
-                  Product
-                </span>
-                <select
-                  className="w-full rounded-xl border px-3 py-2"
-                  value={productId}
-                  onChange={(e) => setProductId(e.target.value)}
-                >
-                  {PRODUCTS.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} (£{p.price})
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="text-sm">
-                <span className="block mb-1" style={{ color: "var(--vf-muted)" }}>
-                  Quantity
-                </span>
-                <input
-                  className="w-full rounded-xl border px-3 py-2"
-                  type="number"
-                  min={1}
-                  value={quantity}
-                  onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))}
-                />
-              </label>
-
-              <label className="text-sm">
-                <span className="block mb-1" style={{ color: "var(--vf-muted)" }}>
-                  Customer name
-                </span>
-                <input
-                  className="w-full rounded-xl border px-3 py-2"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="Mike Hilton"
-                />
-              </label>
-
-              <label className="text-sm">
-                <span className="block mb-1" style={{ color: "var(--vf-muted)" }}>
-                  Phone
-                </span>
-                <input
-                  className="w-full rounded-xl border px-3 py-2"
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  placeholder="07..."
-                />
-              </label>
-
-              <label className="text-sm">
-                <span className="block mb-1" style={{ color: "var(--vf-muted)" }}>
-                  Email (optional)
-                </span>
-                <input
-                  className="w-full rounded-xl border px-3 py-2"
-                  value={customerEmail}
-                  onChange={(e) => setCustomerEmail(e.target.value)}
-                  placeholder="name@email.com"
-                />
-              </label>
-
-              <label className="text-sm">
-                <span className="block mb-1" style={{ color: "var(--vf-muted)" }}>
-                  Postcode
-                </span>
-                <input
-                  className="w-full rounded-xl border px-3 py-2"
-                  value={postcode}
-                  onChange={(e) => setPostcode(e.target.value)}
-                  placeholder="TA..."
-                />
-              </label>
+        {/* Trust strip */}
+        <div className="mx-auto mt-8 grid max-w-5xl gap-4 sm:grid-cols-3">
+          {[
+            {
+              icon: "🪵",
+              title: "Seasoned hardwood",
+              text: "Clean-burning logs, ready for your stove or open fire.",
+            },
+            {
+              icon: "🚚",
+              title: "Local delivery",
+              text: "Fast, friendly deliveries across South Somerset & North Dorset.",
+            },
+            {
+              icon: "📲",
+              title: "Simple ordering",
+              text: "Choose your load, add your postcode, and place your order.",
+            },
+          ].map((t) => (
+            <div
+              key={t.title}
+              className="rounded-3xl border p-6"
+              style={{ background: "var(--vf-surface)" }}
+            >
+              <div className="text-xl">{t.icon}</div>
+              <div className="mt-2 font-bold">{t.title}</div>
+              <p className="mt-1 text-sm text-[var(--vf-muted)]">{t.text}</p>
             </div>
+          ))}
+        </div>
+      </section>
 
-            <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
-              <div className="text-lg font-bold">Total: £{total}</div>
+      {/* Footer */}
+      <footer className="mt-8 border-t px-6 py-8 text-sm text-[var(--vf-muted)]">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
+          <div>© {new Date().getFullYear()} Verrington Firewood</div>
 
-              <button
-                onClick={submitOrder}
-                disabled={submitting}
-                className="rounded-xl px-4 py-2 text-sm font-semibold disabled:opacity-60"
-                style={{
-                  background: "var(--vf-primary)",
-                  color: "var(--vf-primary-contrast)",
-                }}
-              >
-                {submitting ? "Submitting..." : "Submit to Admin"}
-              </button>
-            </div>
-
-            {message ? (
-              <p className="mt-4 text-sm" style={{ color: "var(--vf-muted)" }}>
-                {message}
-              </p>
-            ) : null}
+          <div className="flex items-center gap-2">
+            <Link className="rounded-xl px-2 py-1 hover:bg-black/5" href="/order">
+              Order
+            </Link>
+            <span>·</span>
+            <Link className="rounded-xl px-2 py-1 hover:bg-black/5" href="/prices">
+              Prices
+            </Link>
+            <span>·</span>
+            <Link className="rounded-xl px-2 py-1 hover:bg-black/5" href="/delivery">
+              Delivery
+            </Link>
           </div>
-        </section>
-      </div>
+        </div>
+      </footer>
     </main>
   );
 }
