@@ -1,32 +1,35 @@
-import type { NextApiRequest, NextApiResponse } from "next";
+// src/app/api/orders/[id]/route.ts   (recommended file location)
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-function safeId(id: unknown) {
-  return typeof id === "string" && id.length >= 10 && id.length <= 64;
-}
+export async function GET(
+  _req: Request,
+  { params }: { params: { id: string } }
+) {
+  const id = params.id;
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "GET") {
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
-  }
-
-  const id = req.query.id;
-  if (!safeId(id)) {
-    return res.status(400).json({ ok: false, error: "Invalid order id" });
+  if (!id) {
+    return NextResponse.json({ error: "Invalid order id" }, { status: 400 });
   }
 
   const order = await prisma.order.findUnique({
-    where: { id },
+    where: { id }, // ✅ id is string
     include: {
       items: {
-        include: { product: true },
+        include: {
+          // adjust this include to match your schema relations
+          product: true,
+        },
       },
     },
   });
 
   if (!order) {
-    return res.status(404).json({ ok: false, error: "Order not found" });
+    return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
+
+  return NextResponse.json({ ok: true, order });
+}
 
   const items = order.items.map((it) => ({
     id: it.id,
