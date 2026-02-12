@@ -1,7 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { prisma } from "@/lib/prisma";
 import { sendCustomerStatusUpdateEmail } from "@/lib/mailer";
-import type { OrderStatus } from "@prisma/client";
 
 const ALLOWED_STATUSES = [
   "pending",
@@ -10,12 +9,25 @@ const ALLOWED_STATUSES = [
   "out-for-delivery",
   "delivered",
   "cancelled",
-] as const satisfies readonly OrderStatus[];
+] as const;
 
-const ALLOWED_STATUS_SET = new Set<OrderStatus>(ALLOWED_STATUSES);
+type AllowedStatus = (typeof ALLOWED_STATUSES)[number];
 
-function isAllowedStatus(s: unknown): s is OrderStatus {
-  return typeof s === "string" && ALLOWED_STATUS_SET.has(s as OrderStatus);
+const ALLOWED_STATUS_SET = new Set<AllowedStatus>(ALLOWED_STATUSES);
+
+function isAllowedStatus(s: unknown): s is AllowedStatus {
+  return typeof s === "string" && ALLOWED_STATUS_SET.has(s as AllowedStatus);
+}
+
+function parseBody(req: NextApiRequest): any {
+  if (typeof req.body === "string") {
+    try {
+      return JSON.parse(req.body);
+    } catch {
+      return null;
+    }
+  }
+  return req.body ?? null;
 }
 
 export default async function handler(
@@ -24,7 +36,7 @@ export default async function handler(
 ) {
   const { id } = req.query;
 
-  if (typeof id !== "string") {
+  if (typeof id !== "string" || !id) {
     return res.status(400).json({ error: "Invalid order id" });
   }
 
@@ -36,11 +48,9 @@ export default async function handler(
         include: { items: true },
       });
 
-      if (!order) {
-        return res.status(404).json({ error: "Order not found" });
-      }
+      if (!order) return res.status(404).json({ error: "Order not found" });
 
-      return res.status(200).json(order);
+      return res.status(200).json({ ok: true, order });
     } catch (err) {
       console.error("GET /api/admin/orders/[id] failed:", err);
       return res.status(500).json({ error: "Server error" });
@@ -50,10 +60,10 @@ export default async function handler(
   // ---------------- PATCH ----------------
   if (req.method === "PATCH") {
     try {
-      const body =
-        typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+      const body = parseBody(req);
+      if (!body) return res.status(400).json({ error: "Invalid JSON body" });
 
-      const nextStatus = body?.status;
+      const nextStatus = body.status;
 
       if (!isAllowedStatus(nextStatus)) {
         return res.status(400).json({
@@ -73,9 +83,7 @@ export default async function handler(
         },
       });
 
-      if (!existing) {
-        return res.status(404).json({ error: "Order not found" });
-      }
+      if (!existing) return res.status(404).json({ error: "Order not found" });
 
       const updated = await prisma.order.update({
         where: { id },
@@ -84,7 +92,7 @@ export default async function handler(
       });
 
       // ---- CUSTOMER STATUS EMAIL (filtered + safe) ----
-      const EMAIL_STATUSES = new Set([
+      const EMAIL_STATUSES = new Set<AllowedStatus>([
         "paid",
         "out-for-delivery",
         "delivered",
@@ -104,11 +112,17 @@ export default async function handler(
 
       const customerEmail = String(existing.customerEmail || "").toLowerCase();
 
+      const sendCustomerEmailEnabled =
+        String(process.env.SEND_CUSTOMER_EMAIL || "false") === "true";
+
+      const statusChanged =
+        String(existing.status || "") !== String(nextStatus || "");
+
       const shouldEmailCustomer =
-        String(process.env.SEND_CUSTOMER_EMAIL || "false") === "true" &&
+        sendCustomerEmailEnabled &&
         !!existing.customerEmail &&
-        String(existing.status) !== String(nextStatus) &&
-        EMAIL_STATUSES.has(String(nextStatus)) &&
+        statusChanged &&
+        EMAIL_STATUSES.has(nextStatus) &&
         !adminEmails.has(customerEmail);
 
       if (shouldEmailCustomer) {
@@ -118,7 +132,7 @@ export default async function handler(
             orderId: existing.id,
             customerName: existing.customerName ?? undefined,
             postcode: existing.postcode ?? undefined,
-            status: String(nextStatus),
+            status: nextStatus, // already typed as AllowedStatus
           });
         } catch (e) {
           console.error("Customer status email failed:", e);
