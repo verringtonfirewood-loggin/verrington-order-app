@@ -35,8 +35,9 @@ function formatGBPFromPence(pence: number) {
 }
 
 export default function ThanksPage() {
-  const sp = useSearchParams();
-  const orderId = sp.get("orderId");
+const sp = useSearchParams();
+const orderId = sp?.get("orderId") ?? null;
+
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
