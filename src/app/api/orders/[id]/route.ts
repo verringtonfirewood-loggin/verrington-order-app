@@ -1,13 +1,13 @@
 // src/app/api/orders/[id]/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(
-  _req: Request,
-  { params }: { params: { id: string } }
+  _req: NextRequest,
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = params.id;
+    const { id } = await context.params;
 
     if (!id) {
       return NextResponse.json({ error: "Invalid order id" }, { status: 400 });
@@ -16,7 +16,7 @@ export async function GET(
     const order = await prisma.order.findUnique({
       where: { id },
       include: {
-        items: true, // keep simple; add nested includes once schema confirms
+        items: true, // keep simple; add nested includes once schema confirms relations
       },
     });
 
