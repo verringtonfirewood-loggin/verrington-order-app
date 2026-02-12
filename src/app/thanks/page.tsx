@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
@@ -35,9 +37,8 @@ function formatGBPFromPence(pence: number) {
 }
 
 export default function ThanksPage() {
-const sp = useSearchParams();
-const orderId = sp?.get("orderId") ?? null;
-
+  const sp = useSearchParams();
+  const orderId = useMemo(() => sp?.get("orderId") ?? "", [sp]);
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -47,19 +48,25 @@ const orderId = sp?.get("orderId") ?? null;
     let cancelled = false;
 
     async function load() {
-      if (!orderId) return;
+      if (!orderId) {
+        setOrder(null);
+        return;
+      }
+
       setLoading(true);
       setErr(null);
 
       try {
-        const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, { method: "GET" });
-        const data = await res.json().catch(() => ({}));
+        const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
+          method: "GET",
+        });
+        const data = await res.json().catch(() => ({} as any));
 
         if (!res.ok || !data?.ok) {
           throw new Error(data?.error ?? "Failed to load order");
         }
 
-        if (!cancelled) setOrder(data.order);
+        if (!cancelled) setOrder(data.order as OrderPayload);
       } catch (e: any) {
         if (!cancelled) setErr(e?.message ?? "Failed to load order");
       } finally {
@@ -74,22 +81,32 @@ const orderId = sp?.get("orderId") ?? null;
   }, [orderId]);
 
   const deliveryFeePence = order?.deliveryFeePence ?? null;
+
   const computedTotalPence = useMemo(() => {
     if (!order) return 0;
     if (typeof order.totalPence === "number") return order.totalPence;
-    return order.subtotalPence + (typeof deliveryFeePence === "number" ? deliveryFeePence : 0);
+    return (
+      order.subtotalPence +
+      (typeof deliveryFeePence === "number" ? deliveryFeePence : 0)
+    );
   }, [order, deliveryFeePence]);
 
   return (
     <main className="min-h-screen bg-[var(--vf-bg)] text-[var(--vf-text)]">
       <div className="mx-auto max-w-4xl px-6 py-12">
-        <div className="rounded-3xl border p-8 shadow-sm" style={{ background: "var(--vf-surface)" }}>
+        <div
+          className="rounded-3xl border p-8 shadow-sm"
+          style={{ background: "var(--vf-surface)" }}
+        >
           <div className="flex items-center justify-between gap-4">
             <div>
-              <div className="text-sm font-semibold text-[var(--vf-muted)]">Verrington Firewood</div>
+              <div className="text-sm font-semibold text-[var(--vf-muted)]">
+                Verrington Firewood
+              </div>
               <h1 className="mt-2 text-3xl font-extrabold">Order received</h1>
               <p className="mt-2 text-[var(--vf-muted)]">
-                We’ll confirm delivery day (and any delivery charge) by text shortly.
+                We’ll confirm delivery day (and any delivery charge) by text
+                shortly.
               </p>
             </div>
 
@@ -104,7 +121,9 @@ const orderId = sp?.get("orderId") ?? null;
           {/* Reference */}
           <div className="mt-6 rounded-2xl border p-4">
             <div className="text-sm text-[var(--vf-muted)]">Order reference</div>
-            <div className="mt-1 font-mono text-sm break-all">{orderId ?? "—"}</div>
+            <div className="mt-1 font-mono text-sm break-all">
+              {orderId || "—"}
+            </div>
           </div>
 
           {/* Loading / error */}
@@ -159,18 +178,26 @@ const orderId = sp?.get("orderId") ?? null;
                   <div className="font-bold">Delivery details</div>
                   <div className="mt-2 text-[var(--vf-muted)]">
                     <div>
-                      <span className="font-semibold text-[var(--vf-text)]">Postcode:</span>{" "}
+                      <span className="font-semibold text-[var(--vf-text)]">
+                        Postcode:
+                      </span>{" "}
                       {order.postcode}
                     </div>
+
                     {order.preferredDay ? (
                       <div className="mt-1">
-                        <span className="font-semibold text-[var(--vf-text)]">Preferred day:</span>{" "}
+                        <span className="font-semibold text-[var(--vf-text)]">
+                          Preferred day:
+                        </span>{" "}
                         {order.preferredDay}
                       </div>
                     ) : null}
+
                     {order.deliveryNotes ? (
                       <div className="mt-2">
-                        <span className="font-semibold text-[var(--vf-text)]">Notes:</span>{" "}
+                        <span className="font-semibold text-[var(--vf-text)]">
+                          Notes:
+                        </span>{" "}
                         {order.deliveryNotes}
                       </div>
                     ) : null}
@@ -179,13 +206,18 @@ const orderId = sp?.get("orderId") ?? null;
               </section>
 
               <aside>
-                <div className="sticky top-6 rounded-3xl border p-6" style={{ background: "var(--vf-surface)" }}>
+                <div
+                  className="sticky top-6 rounded-3xl border p-6"
+                  style={{ background: "var(--vf-surface)" }}
+                >
                   <h2 className="text-lg font-extrabold">Totals</h2>
 
                   <div className="mt-4 space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-[var(--vf-muted)]">Subtotal</span>
-                      <span className="font-semibold">{formatGBPFromPence(order.subtotalPence)}</span>
+                      <span className="font-semibold">
+                        {formatGBPFromPence(order.subtotalPence)}
+                      </span>
                     </div>
 
                     <div className="flex justify-between">
@@ -200,14 +232,16 @@ const orderId = sp?.get("orderId") ?? null;
                     <div className="mt-3 border-t pt-3 flex justify-between">
                       <span className="font-bold">Total</span>
                       <span className="text-lg font-extrabold">
-                        {typeof deliveryFeePence === "number" || typeof order.totalPence === "number"
+                        {typeof deliveryFeePence === "number" ||
+                        typeof order.totalPence === "number"
                           ? formatGBPFromPence(computedTotalPence)
                           : formatGBPFromPence(order.subtotalPence)}
                       </span>
                     </div>
 
                     <p className="mt-2 text-xs text-[var(--vf-muted)]">
-                      We’ll confirm delivery day and any delivery charge by text.
+                      We’ll confirm delivery day and any delivery charge by
+                      text.
                     </p>
                   </div>
 
@@ -215,7 +249,10 @@ const orderId = sp?.get("orderId") ?? null;
                     <Link
                       href="/order"
                       className="rounded-2xl px-6 py-3 text-sm font-semibold text-center"
-                      style={{ background: "var(--vf-primary)", color: "var(--vf-primary-contrast)" }}
+                      style={{
+                        background: "var(--vf-primary)",
+                        color: "var(--vf-primary-contrast)",
+                      }}
                     >
                       Place another order
                     </Link>
