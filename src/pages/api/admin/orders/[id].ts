@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { prisma } from "@/lib/prisma";
 import { sendCustomerStatusUpdateEmail } from "@/lib/mailer";
+import type { OrderStatus } from "@prisma/client";
 
 const ALLOWED_STATUSES = [
   "pending",
@@ -9,12 +10,12 @@ const ALLOWED_STATUSES = [
   "out-for-delivery",
   "delivered",
   "cancelled",
-] as const;
+] as const satisfies readonly OrderStatus[];
 
-type OrderStatus = (typeof ALLOWED_STATUSES)[number];
+const ALLOWED_STATUS_SET = new Set<OrderStatus>(ALLOWED_STATUSES);
 
-function isAllowedStatus(s: any): s is OrderStatus {
-  return ALLOWED_STATUSES.includes(String(s));
+function isAllowedStatus(s: unknown): s is OrderStatus {
+  return typeof s === "string" && ALLOWED_STATUS_SET.has(s as OrderStatus);
 }
 
 export default async function handler(
