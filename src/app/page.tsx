@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import GoogleRatingBadge from "@/components/GoogleRatingBadge";
 
 export default function Home() {
   return (
@@ -158,20 +159,25 @@ export default function Home() {
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
           <div>© {new Date().getFullYear()} Verrington Firewood</div>
 
-          <div className="flex items-center gap-2">
-            <Link className="rounded-xl px-2 py-1 hover:bg-black/5" href="/order">
-              Order
-            </Link>
-            <span>·</span>
-            <Link className="rounded-xl px-2 py-1 hover:bg-black/5" href="/prices">
-              Prices
-            </Link>
-            <span>·</span>
-            <Link className="rounded-xl px-2 py-1 hover:bg-black/5" href="/delivery">
-              Delivery
-            </Link>
-          </div>
-        </div>
+<div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center">
+  <div className="flex items-center gap-2">
+    <Link className="rounded-xl px-2 py-1 hover:bg-black/5" href="/order">
+      Order
+    </Link>
+    <span>·</span>
+    <Link className="rounded-xl px-2 py-1 hover:bg-black/5" href="/prices">
+      Prices
+    </Link>
+    <span>·</span>
+    <Link className="rounded-xl px-2 py-1 hover:bg-black/5" href="/delivery">
+      Delivery
+    </Link>
+  </div>
+
+  <div className="w-full sm:w-auto sm:min-w-[280px]">
+    <GoogleRatingBadge />
+  </div>
+</div>
       </footer>
     </main>
   );
