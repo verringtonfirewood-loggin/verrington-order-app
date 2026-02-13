@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getPrisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
@@ -28,6 +28,12 @@ function envAdminPass() {
   );
 }
 
+function decodeBasic(auth: string) {
+  const b64 = auth.slice("Basic ".length).trim();
+  // Node runtime: Buffer is available
+  return Buffer.from(b64, "base64").toString("utf8");
+}
+
 function checkBasicAuth(req: Request) {
   const user = envAdminUser();
   const pass = envAdminPass();
@@ -36,15 +42,20 @@ function checkBasicAuth(req: Request) {
   const auth = req.headers.get("authorization") || "";
   if (!auth.startsWith("Basic ")) return false;
 
-  const b64 = auth.slice("Basic ".length).trim();
-  const decoded = Buffer.from(b64, "base64").toString("utf8");
-  const [u, p] = decoded.split(":");
+  const decoded = decodeBasic(auth);
+  const idx = decoded.indexOf(":");
+  if (idx < 0) return false;
+
+  const u = decoded.slice(0, idx);
+  const p = decoded.slice(idx + 1);
   return u === user && p === pass;
 }
 
 // POST /api/admin/seed-products
 export async function POST(req: Request) {
   if (!checkBasicAuth(req)) return unauthorized();
+
+  const prisma = getPrisma();
 
   const defaults = [
     {
@@ -90,10 +101,5 @@ export async function POST(req: Request) {
 
   const total = await prisma.product.count();
 
-  return NextResponse.json({
-    ok: true,
-    created,
-    existed,
-    total,
-  });
+  return NextResponse.json({ ok: true, created, existed, total });
 }

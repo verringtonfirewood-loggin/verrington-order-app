@@ -26,12 +26,17 @@ type OrderPayload = {
   deliveryFeePence?: number | null;
   totalPence?: number | null;
   subtotalPence: number;
+
+  checkoutPaymentMethod: "MOLLIE" | "BACS" | "CASH";
+  paymentStatus: "UNPAID" | "PENDING" | "PAID" | "FAILED" | "EXPIRED" | "CANCELED";
+
+  mollieCheckoutUrl?: string | null;
+
   items: OrderItem[];
 };
 
 function formatGBPFromPence(pence: number) {
-  const gbp = (pence || 0) / 100;
-  return `£${gbp.toFixed(2)}`;
+  return `£${((pence || 0) / 100).toFixed(2)}`;
 }
 
 export default function ThanksClient() {
@@ -41,6 +46,7 @@ export default function ThanksClient() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [order, setOrder] = useState<OrderPayload | null>(null);
+  const [startingPay, setStartingPay] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,9 +61,7 @@ export default function ThanksClient() {
       setErr(null);
 
       try {
-        const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
-          method: "GET",
-        });
+        const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}`);
         const data = await res.json().catch(() => ({} as any));
 
         if (!res.ok || !data?.ok) {
@@ -83,11 +87,32 @@ export default function ThanksClient() {
   const computedTotalPence = useMemo(() => {
     if (!order) return 0;
     if (typeof order.totalPence === "number") return order.totalPence;
-    return (
-      order.subtotalPence +
-      (typeof deliveryFeePence === "number" ? deliveryFeePence : 0)
-    );
+    return order.subtotalPence + (deliveryFeePence ?? 0);
   }, [order, deliveryFeePence]);
+
+  async function startMolliePayment() {
+    if (!orderId) return;
+
+    try {
+      setStartingPay(true);
+      setErr(null);
+
+      const res = await fetch("/api/pay/mollie/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to start payment");
+
+      window.location.href = data.url;
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed to start payment");
+    } finally {
+      setStartingPay(false);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[var(--vf-bg)] text-[var(--vf-text)]">
@@ -96,176 +121,88 @@ export default function ThanksClient() {
           className="rounded-3xl border p-8 shadow-sm"
           style={{ background: "var(--vf-surface)" }}
         >
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <div className="text-sm font-semibold text-[var(--vf-muted)]">
-                Verrington Firewood
+          <h1 className="text-3xl font-extrabold">Order received</h1>
+
+          <div className="mt-4 text-sm text-[var(--vf-muted)]">
+            Reference: <span className="font-mono">{orderId}</span>
+          </div>
+
+          {loading && <p className="mt-4 text-sm">Loading order…</p>}
+          {err && <p className="mt-4 text-sm text-red-600">{err}</p>}
+
+          {order && (
+            <>
+              {/* Payment block */}
+              <div className="mt-6 rounded-3xl border p-5 text-sm">
+                <div className="font-bold">Payment</div>
+                <div className="mt-2 text-[var(--vf-muted)]">
+                  Method: {order.checkoutPaymentMethod}
+                </div>
+                <div className="text-[var(--vf-muted)]">
+                  Status: {order.paymentStatus}
+                </div>
+
+                {order.checkoutPaymentMethod === "MOLLIE" && (
+                  <div className="mt-3">
+                    {order.paymentStatus === "PAID" ? (
+                      <div className="text-green-700 font-semibold">
+                        Payment received ✅
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-[var(--vf-muted)]">
+                          Secure online payment (Card / Apple Pay)
+                        </p>
+
+                        {order.mollieCheckoutUrl ? (
+                          <a
+                            href={order.mollieCheckoutUrl}
+                            className="mt-2 inline-block rounded-2xl border px-4 py-2 font-semibold hover:bg-black/5"
+                          >
+                            Resume payment
+                          </a>
+                        ) : (
+                          <button
+                            onClick={startMolliePayment}
+                            disabled={startingPay}
+                            className="mt-2 rounded-2xl border px-4 py-2 font-semibold hover:bg-black/5"
+                          >
+                            {startingPay ? "Starting…" : "Pay now"}
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {order.checkoutPaymentMethod === "BACS" && (
+                  <p className="mt-3 text-[var(--vf-muted)]">
+                    Please transfer {formatGBPFromPence(computedTotalPence)} using
+                    reference <b>{order.id}</b>.
+                  </p>
+                )}
+
+                {order.checkoutPaymentMethod === "CASH" && (
+                  <p className="mt-3 text-[var(--vf-muted)]">
+                    Payment will be taken on delivery.
+                  </p>
+                )}
               </div>
-              <h1 className="mt-2 text-3xl font-extrabold">Order received</h1>
-              <p className="mt-2 text-[var(--vf-muted)]">
-                We’ll confirm delivery day (and any delivery charge) by text
-                shortly.
-              </p>
-            </div>
 
-            <Link
-              href="/"
-              className="hidden sm:inline-flex rounded-2xl border px-5 py-3 text-sm font-semibold hover:bg-black/5"
-            >
-              Back home
-            </Link>
-          </div>
+              {/* Totals */}
+              <div className="mt-6 text-sm">
+                Total:{" "}
+                <span className="font-bold">
+                  {formatGBPFromPence(computedTotalPence)}
+                </span>
+              </div>
 
-          {/* Reference */}
-          <div className="mt-6 rounded-2xl border p-4">
-            <div className="text-sm text-[var(--vf-muted)]">Order reference</div>
-            <div className="mt-1 font-mono text-sm break-all">
-              {orderId || "—"}
-            </div>
-          </div>
-
-          {/* Loading / error */}
-          {loading ? (
-            <div className="mt-6 rounded-2xl border p-4 text-sm text-[var(--vf-muted)]">
-              Loading your order…
-            </div>
-          ) : err ? (
-            <div className="mt-6 rounded-2xl border p-4 text-sm text-red-700">
-              Couldn’t load your order summary: {err}
-            </div>
-          ) : null}
-
-          {/* Summary */}
-          {order ? (
-            <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_320px]">
-              <section>
-                <h2 className="text-lg font-extrabold">Your items</h2>
-
-                <div className="mt-4 space-y-3">
-                  {order.items.map((i) => (
-                    <div key={i.id} className="rounded-3xl border p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex items-start gap-4 min-w-0">
-                          <div className="relative h-12 w-14 overflow-hidden rounded-2xl border bg-black/[0.03] shrink-0">
-                            <Image
-                              src={i.imageUrl || "/products/placeholder.jpg"}
-                              alt={i.imageAlt ?? i.name}
-                              fill
-                              className="object-cover"
-                              sizes="56px"
-                            />
-                          </div>
-
-                          <div className="min-w-0">
-                            <div className="font-bold">{i.name}</div>
-                            <div className="mt-1 text-sm text-[var(--vf-muted)]">
-                              {i.quantity} × {formatGBPFromPence(i.pricePence)}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="shrink-0 font-semibold">
-                          {formatGBPFromPence(i.lineTotalPence)}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-6 rounded-3xl border p-5 text-sm">
-                  <div className="font-bold">Delivery details</div>
-                  <div className="mt-2 text-[var(--vf-muted)]">
-                    <div>
-                      <span className="font-semibold text-[var(--vf-text)]">
-                        Postcode:
-                      </span>{" "}
-                      {order.postcode}
-                    </div>
-
-                    {order.preferredDay ? (
-                      <div className="mt-1">
-                        <span className="font-semibold text-[var(--vf-text)]">
-                          Preferred day:
-                        </span>{" "}
-                        {order.preferredDay}
-                      </div>
-                    ) : null}
-
-                    {order.deliveryNotes ? (
-                      <div className="mt-2">
-                        <span className="font-semibold text-[var(--vf-text)]">
-                          Notes:
-                        </span>{" "}
-                        {order.deliveryNotes}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </section>
-
-              <aside>
-                <div
-                  className="sticky top-6 rounded-3xl border p-6"
-                  style={{ background: "var(--vf-surface)" }}
-                >
-                  <h2 className="text-lg font-extrabold">Totals</h2>
-
-                  <div className="mt-4 space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-[var(--vf-muted)]">Subtotal</span>
-                      <span className="font-semibold">
-                        {formatGBPFromPence(order.subtotalPence)}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <span className="text-[var(--vf-muted)]">Delivery</span>
-                      <span className="font-semibold">
-                        {typeof deliveryFeePence === "number"
-                          ? formatGBPFromPence(deliveryFeePence)
-                          : "To be confirmed"}
-                      </span>
-                    </div>
-
-                    <div className="mt-3 border-t pt-3 flex justify-between">
-                      <span className="font-bold">Total</span>
-                      <span className="text-lg font-extrabold">
-                        {typeof deliveryFeePence === "number" ||
-                        typeof order.totalPence === "number"
-                          ? formatGBPFromPence(computedTotalPence)
-                          : formatGBPFromPence(order.subtotalPence)}
-                      </span>
-                    </div>
-
-                    <p className="mt-2 text-xs text-[var(--vf-muted)]">
-                      We’ll confirm delivery day and any delivery charge by
-                      text.
-                    </p>
-                  </div>
-
-                  <div className="mt-6 flex flex-col gap-3">
-                    <Link
-                      href="/order"
-                      className="rounded-2xl px-6 py-3 text-sm font-semibold text-center"
-                      style={{
-                        background: "var(--vf-primary)",
-                        color: "var(--vf-primary-contrast)",
-                      }}
-                    >
-                      Place another order
-                    </Link>
-
-                    <Link
-                      href="/"
-                      className="rounded-2xl border px-6 py-3 text-sm font-semibold text-center hover:bg-black/5"
-                    >
-                      Back home
-                    </Link>
-                  </div>
-                </div>
-              </aside>
-            </div>
-          ) : null}
+              <div className="mt-6 flex gap-3">
+                <Link href="/order">Place another order</Link>
+                <Link href="/">Back home</Link>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </main>

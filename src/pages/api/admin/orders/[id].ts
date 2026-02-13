@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { prisma } from "@/lib/prisma";
+import { getPrisma } from "@/lib/prisma";
 import { sendCustomerStatusUpdateEmail } from "@/lib/mailer";
 
 const ALLOWED_STATUSES = [

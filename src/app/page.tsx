@@ -17,7 +17,9 @@ export default function Home() {
               priority
             />
             <div className="leading-tight">
-              <div className="font-extrabold tracking-tight">Verrington Firewood</div>
+              <div className="font-extrabold tracking-tight">
+                Verrington Firewood
+              </div>
               <div className="text-sm text-[var(--vf-muted)]">
                 South Somerset &amp; North Dorset
               </div>
@@ -55,7 +57,7 @@ export default function Home() {
       <section className="px-6 py-12">
         <div className="mx-auto max-w-5xl overflow-hidden rounded-3xl border shadow-sm">
           <div
-            className="relative min-h-[360px] sm:min-h-[420px] bg-cover bg-center"
+            className="relative min-h-[360px] bg-cover bg-center sm:min-h-[420px]"
             style={{ backgroundImage: "url('/log-wall.jpg')" }}
           >
             {/* Overlays for readability */}
@@ -88,8 +90,8 @@ export default function Home() {
               </h1>
 
               <p className="mt-3 max-w-2xl text-base leading-relaxed text-white/90 drop-shadow">
-                Order in minutes. We’ll confirm your delivery day and keep you updated.
-                Serving{" "}
+                Order in minutes. We’ll confirm your delivery day and keep you
+                updated. Serving{" "}
                 <span className="font-semibold text-white">South Somerset</span>{" "}
                 and{" "}
                 <span className="font-semibold text-white">North Dorset</span>.
@@ -121,9 +123,11 @@ export default function Home() {
             </div>
           </div>
         </div>
+      </section>
 
-        {/* Trust strip */}
-        <div className="mx-auto mt-8 grid max-w-5xl gap-4 sm:grid-cols-3">
+      {/* Trust strip */}
+      <section className="px-6 pb-12">
+        <div className="mx-auto grid max-w-5xl gap-4 sm:grid-cols-3">
           {[
             {
               icon: "🪵",
@@ -157,27 +161,37 @@ export default function Home() {
       {/* Footer */}
       <footer className="mt-8 border-t px-6 py-8 text-sm text-[var(--vf-muted)]">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
-          <div>© {new Date().getFullYear()} Verrington Firewood</div>
+          <div>&copy; {new Date().getFullYear()} Verrington Firewood</div>
 
-<div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center">
-  <div className="flex items-center gap-2">
-    <Link className="rounded-xl px-2 py-1 hover:bg-black/5" href="/order">
-      Order
-    </Link>
-    <span>·</span>
-    <Link className="rounded-xl px-2 py-1 hover:bg-black/5" href="/prices">
-      Prices
-    </Link>
-    <span>·</span>
-    <Link className="rounded-xl px-2 py-1 hover:bg-black/5" href="/delivery">
-      Delivery
-    </Link>
-  </div>
+          <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-2">
+              <Link
+                className="rounded-xl px-2 py-1 hover:bg-black/5"
+                href="/order"
+              >
+                Order
+              </Link>
+              <span>&middot;</span>
+              <Link
+                className="rounded-xl px-2 py-1 hover:bg-black/5"
+                href="/prices"
+              >
+                Prices
+              </Link>
+              <span>&middot;</span>
+              <Link
+                className="rounded-xl px-2 py-1 hover:bg-black/5"
+                href="/delivery"
+              >
+                Delivery
+              </Link>
+            </div>
 
-  <div className="w-full sm:w-auto sm:min-w-[280px]">
-    <GoogleRatingBadge />
-  </div>
-</div>
+            <div className="w-full sm:w-auto sm:min-w-[280px]">
+              <GoogleRatingBadge />
+            </div>
+          </div>
+        </div>
       </footer>
     </main>
   );

@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { prisma } from "@/lib/prisma";
+import { getPrisma } from "@/lib/prisma";
 import {
   sendAdminNewOrderEmail,
   sendCustomerConfirmationEmail,
@@ -84,6 +84,7 @@ export default async function handler(
   }
 
   try {
+    const prisma = getPrisma();
     const proofTag = `vercel-proof-${new Date().toISOString()}`;
     const body = parseBody(req);
     if (!body) return res.status(400).json({ ok: false, message: "Invalid JSON body" });

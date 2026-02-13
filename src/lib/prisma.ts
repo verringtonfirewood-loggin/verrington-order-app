@@ -7,7 +7,6 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 function mysqlUrlToAdapterConfig(databaseUrl: string) {
   const u = new URL(databaseUrl);
 
-  // Railway is usually mysql://user:pass@host:port/db
   const database = u.pathname.replace(/^\//, "");
 
   return {
@@ -20,11 +19,32 @@ function mysqlUrlToAdapterConfig(databaseUrl: string) {
   };
 }
 
-const adapter = new PrismaMariaDb(
-  mysqlUrlToAdapterConfig(process.env.DATABASE_URL!)
-);
+function getDatabaseUrl(): string {
+  const v = process.env.DATABASE_URL;
 
-export const prisma =
-  globalForPrisma.prisma ?? new PrismaClient({ adapter });
+  // Treat your placeholder as "not configured"
+  if (!v || v.includes("mysql://USER:PASSWORD@HOST:PORT/DATABASE")) {
+    throw new Error(
+      "DATABASE_URL is missing/placeholder. Set a real MySQL URL in .env.local (and in Vercel env vars)."
+    );
+  }
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+  return v;
+}
+
+function createPrismaClient() {
+  const databaseUrl = getDatabaseUrl();
+  const adapter = new PrismaMariaDb(mysqlUrlToAdapterConfig(databaseUrl));
+  return new PrismaClient({ adapter });
+}
+
+/**
+ * Call this inside request handlers (API routes / server actions).
+ * It avoids blowing up builds by not parsing env at module import time.
+ */
+export function getPrisma(): PrismaClient {
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = createPrismaClient();
+  }
+  return globalForPrisma.prisma;
+}

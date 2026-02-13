@@ -11,6 +11,7 @@
     "vercel-build": "prisma migrate deploy && prisma generate && next build"
   },
   "dependencies": {
+    "@mollie/api-client": "^4.4.0",
     "@prisma/adapter-mariadb": "^7.4.0",
     "@prisma/client": "^7.4.0",
     "mariadb": "^3.4.5",

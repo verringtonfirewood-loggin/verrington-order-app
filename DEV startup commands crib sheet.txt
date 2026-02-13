@@ -1,0 +1,50 @@
+🛠 OPTIONAL: ENV SYNC COMMAND (good hygiene)
+
+If you want ChatGPT aware of your Vercel env state:
+
+vercel env pull .env.vercel.local
+
+🚀 STANDARD DEV STARTUP COMMANDS
+cd C:\Projects\verrington-order-app
+npm run dev
+
+
+Production sanity check:
+
+npm run build
+npm run start
+
+🔁 DEPLOYMENT COMMANDS
+
+Auto deploy (Git):
+
+git add -A
+git commit -m "Feature update"
+git push
+
+
+Force production deploy:
+
+vercel --prod
+
+
+Force clean deploy:
+
+vercel --prod --force
+
+🔍 USEFUL DEBUG COMMANDS FOR FUTURE CHATS
+
+Find Prisma usage:
+
+Select-String -Path .\src\**\*.ts,.\src\**\*.tsx -Pattern 'getPrisma'
+
+
+Find API routes:
+
+Get-ChildItem .\src\app\api -Recurse
+Get-ChildItem .\src\pages\api -Recurse
+
+
+Clear build cache:
+
+Remove-Item -Recurse -Force .\.next

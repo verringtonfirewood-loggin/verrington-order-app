@@ -5,6 +5,20 @@ generator client {
 datasource db {
   provider = "mysql"
 }
+enum CheckoutPaymentMethod {
+  MOLLIE
+  CASH
+  BACS
+}
+
+enum PaymentStatus {
+  UNPAID
+  PENDING
+  PAID
+  FAILED
+  EXPIRED
+  CANCELED
+}
 
 /**
  * Prisma 7: do NOT define datasource.url here.
@@ -12,7 +26,7 @@ datasource db {
  */
 
 model Order {
-  id              String   @id @default(cuid())
+  id               String   @id @default(cuid())
   createdAt        DateTime @default(now())
 
   customerName     String
@@ -28,6 +42,14 @@ model Order {
 
   preferredDay     String?
   deliveryNotes    String?
+
+  // ✅ NEW — payment handling
+  checkoutPaymentMethod CheckoutPaymentMethod @default(BACS)
+  paymentStatus         PaymentStatus         @default(UNPAID)
+
+  molliePaymentId       String? @unique
+  mollieCheckoutUrl     String?
+  paidAt                DateTime?
 
   items            OrderItem[]
 
