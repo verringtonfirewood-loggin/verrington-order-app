@@ -223,21 +223,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 // ✅ Send emails AFTER the transaction succeeds (never inside the transaction)
 try {
 try {
-  const adminEmailArgs = {
-    orderId: order.id,
-    createdAt: order.createdAt.toISOString(),
-    customerName: order.customerName ?? undefined
-    customerPhone: order.customerPhone ?? undefined,
-    customerEmail: order.customerEmail ?? null,
-    postcode: order.postcode ?? null,
-    totalPence: order.totalPence ?? null,
-    status: order.status ?? undefined,
-    items: (order.items ?? []).map((it) => ({
-      name: it.name,
-      quantity: it.quantity,
-      pricePence: it.pricePence ?? null,
-    })),
-  };
+const adminEmailArgs = {
+  orderId: order.id,
+  createdAt: order.createdAt.toISOString(),
+  customerName: order.customerName,
+  customerPhone: order.customerPhone ?? undefined, // ✅ FIX
+  customerEmail: order.customerEmail ?? null,
+  postcode: order.postcode ?? null,
+  totalPence: order.totalPence ?? null,
+  status: order.status ?? undefined,               // optional, safe
+  items: (order.items ?? []).map((it) => ({
+    name: it.name,
+    quantity: it.quantity,
+    pricePence: it.pricePence ?? null,
+  })),
+};
 
   const tasks: Promise<any>[] = [];
 
