@@ -226,12 +226,12 @@ try {
   const adminEmailArgs = {
     orderId: order.id,
     createdAt: order.createdAt.toISOString(),
-    customerName: order.customerName,
-    customerPhone: order.customerPhone,
+    customerName: order.customerName ?? undefined
+    customerPhone: order.customerPhone ?? undefined,
     customerEmail: order.customerEmail ?? null,
     postcode: order.postcode ?? null,
     totalPence: order.totalPence ?? null,
-    status: order.status ?? null,
+    status: order.status ?? undefined,
     items: (order.items ?? []).map((it) => ({
       name: it.name,
       quantity: it.quantity,
