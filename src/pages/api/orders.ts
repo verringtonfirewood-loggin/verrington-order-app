@@ -1,9 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getPrisma } from "@/lib/prisma";
-import {
-  sendAdminNewOrderEmail,
-  sendCustomerConfirmationEmail,
-} from "@/lib/mailer";
+import { sendAdminNewOrderEmail, sendCustomerConfirmationEmail } from "@/lib/mailer";
 
 function toPositiveInt(input: unknown, fieldName: string): number {
   const n = Number(input);
@@ -63,6 +60,8 @@ type ItemCreate = {
   quantity: number;
 };
 
+type CheckoutPaymentMethod = "MOLLIE" | "BACS" | "CASH";
+
 function parseBody(req: NextApiRequest): any {
   if (typeof req.body === "string") {
     try {
@@ -74,22 +73,29 @@ function parseBody(req: NextApiRequest): any {
   return req.body ?? null;
 }
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
+function parseCheckoutPaymentMethod(input: unknown): CheckoutPaymentMethod {
+  const v = String(input ?? "").trim().toUpperCase();
+  if (v === "MOLLIE" || v === "BACS" || v === "CASH") return v;
+  return "BACS";
+}
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     res.setHeader("Allow", ["POST"]);
     return res.status(405).json({ error: "Method Not Allowed" });
   }
 
   try {
-    const prisma = getPrisma();
+    const prisma = await getPrisma();
+
     const proofTag = `vercel-proof-${new Date().toISOString()}`;
     const body = parseBody(req);
     if (!body) return res.status(400).json({ ok: false, message: "Invalid JSON body" });
 
     const postcode = normalizeUKPostcode(body?.postcode ?? "TA1 1AA");
+
+    // ✅ Payment method saved on the order
+    const checkoutPaymentMethod = parseCheckoutPaymentMethod(body?.checkoutPaymentMethod);
 
     // Optional extras from your UI (safe strings)
     const preferredDay =
@@ -116,24 +122,20 @@ export default async function handler(
         ];
 
     // Validate incoming quantities + productIds
-    const requested: RequestedItem[] = rawItems.map(
-      (i: any, idx: number): RequestedItem => {
-        const productId = String(i?.productId ?? "").trim();
-        if (!productId) throw new Error(`Item ${idx + 1}: missing productId`);
+    const requested: RequestedItem[] = rawItems.map((i: any, idx: number): RequestedItem => {
+      const productId = String(i?.productId ?? "").trim();
+      if (!productId) throw new Error(`Item ${idx + 1}: missing productId`);
 
-        const quantity = toPositiveInt(i?.quantity ?? i?.qty, "quantity");
-        return { productId, quantity };
-      }
-    );
+      const quantity = toPositiveInt(i?.quantity ?? i?.qty, "quantity");
+      return { productId, quantity };
+    });
 
     // ✅ Authoritative pricing:
     // For real orders, pull prices + names from DB by productId
     let itemCreates: ItemCreate[] = [];
 
     if (hasRealItems) {
-      const productIds = Array.from(
-        new Set(requested.map((r: RequestedItem) => r.productId))
-      );
+      const productIds = Array.from(new Set(requested.map((r: RequestedItem) => r.productId)));
 
       const dbProducts = await prisma.product.findMany({
         where: {
@@ -174,12 +176,14 @@ export default async function handler(
     }
 
     // Totals computed from authoritative itemCreates
-    const subtotalPence = itemCreates.reduce(
-      (sum, i) => sum + i.pricePence * i.quantity,
-      0
-    );
+    const subtotalPence = itemCreates.reduce((sum, i) => sum + i.pricePence * i.quantity, 0);
     const deliveryFeePence = deliveryFeeForPostcodePence(postcode);
     const totalPence = subtotalPence + deliveryFeePence;
+
+    // ✅ Payment status defaults:
+    // - Mollie starts PENDING (webhook will flip to PAID/FAILED/etc)
+    // - BACS/CASH start UNPAID
+    const paymentStatus = checkoutPaymentMethod === "MOLLIE" ? "PENDING" : "UNPAID";
 
     const order = await prisma.order.create({
       data: {
@@ -211,6 +215,10 @@ export default async function handler(
           typeof body?.status === "string" && body.status.trim()
             ? body.status.trim()
             : "NEW",
+
+        // ✅ NEW: persisted payment choice + status
+        checkoutPaymentMethod,
+        paymentStatus,
 
         items: {
           create: itemCreates.map((i) => ({
@@ -250,10 +258,7 @@ export default async function handler(
           deliveryFeePence,
         } as any);
 
-        if (
-          String(process.env.SEND_CUSTOMER_EMAIL || "false") === "true" &&
-          order.customerEmail
-        ) {
+        if (String(process.env.SEND_CUSTOMER_EMAIL || "false") === "true" && order.customerEmail) {
           await sendCustomerConfirmationEmail({
             to: order.customerEmail,
             orderId: order.id,
@@ -289,11 +294,13 @@ export default async function handler(
 
       postcode: order.postcode,
       itemCount: order.items.length,
+
+      // helpful for UI / debugging
+      checkoutPaymentMethod,
+      paymentStatus,
     });
   } catch (err: any) {
     console.error("POST /api/orders failed:", err);
-    return res
-      .status(400)
-      .json({ ok: false, message: err?.message ?? String(err) });
+    return res.status(400).json({ ok: false, message: err?.message ?? String(err) });
   }
 }

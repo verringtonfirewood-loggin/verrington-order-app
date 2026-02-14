@@ -15,8 +15,7 @@ type AppPaymentStatus =
 function mapMollieStatus(status?: string): AppPaymentStatus {
   switch (status) {
     case "paid":
-      return "PAID";
-    case "authorized": // treat as paid/secured; you can change to PENDING if you prefer
+    case "authorized":
       return "PAID";
     case "canceled":
       return "CANCELED";
@@ -31,14 +30,19 @@ function mapMollieStatus(status?: string): AppPaymentStatus {
   }
 }
 
+const debug = process.env.DEBUG_MOLLIE_WEBHOOK === "1";
+const dlog = (...args: any[]) => debug && console.log("[mollie-webhook]", ...args);
+
 export async function POST(req: Request) {
   try {
-    // Mollie usually posts "id=tr_xxx" as form-encoded
     const raw = await req.text();
     const params = new URLSearchParams(raw);
     const molliePaymentId = params.get("id");
 
+    dlog("hit", { raw, molliePaymentId });
+
     if (!molliePaymentId) {
+      dlog("missing molliePaymentId");
       return NextResponse.json({ received: true });
     }
 
@@ -48,21 +52,31 @@ export async function POST(req: Request) {
     const payment = await mollie.payments.get(molliePaymentId);
     const orderId = (payment.metadata as any)?.orderId as string | undefined;
 
+    dlog("payment", {
+      paymentId: payment.id,
+      status: payment.status,
+      orderId,
+      checkout: payment?._links?.checkout?.href,
+      metadata: payment.metadata,
+    });
+
     if (!orderId) {
+      dlog("missing orderId in metadata");
       return NextResponse.json({ received: true });
     }
 
     const newStatus = mapMollieStatus(payment.status);
     const checkoutUrl = payment?._links?.checkout?.href;
 
-    // Fetch existing order so we can do idempotent updates (paidAt)
     const existing = await prisma.order.findUnique({
       where: { id: orderId },
       select: { id: true, paymentStatus: true, paidAt: true },
     });
 
+    dlog("existing", existing);
+
     if (!existing) {
-      // Order doesn't exist (deleted / wrong metadata) — ACK so Mollie doesn't retry forever
+      dlog("order not found");
       return NextResponse.json({ received: true });
     }
 
@@ -71,26 +85,25 @@ export async function POST(req: Request) {
       molliePaymentId: payment.id,
     };
 
-    // Only set paidAt once (first time we see PAID)
     if (newStatus === "PAID" && !existing.paidAt) {
       update.paidAt = new Date();
     }
-
-    // Optional: keep latest checkout link (useful for "resume payment" UX)
     if (checkoutUrl) {
       update.mollieCheckoutUrl = checkoutUrl;
     }
+
+    dlog("updating", update);
 
     await prisma.order.update({
       where: { id: orderId },
       data: update,
     });
 
+    dlog("updated OK");
     return NextResponse.json({ received: true });
   } catch (err) {
-    // IMPORTANT: always ACK webhooks to avoid repeated retries due to transient issues.
-    // If you want logging:
-    // console.error("Mollie webhook error:", err);
+    // This is the key: if Prisma/enum/DB is failing, you’ll finally see it in Vercel logs.
+    console.error("[mollie-webhook] ERROR", err);
     return NextResponse.json({ received: true });
   }
 }

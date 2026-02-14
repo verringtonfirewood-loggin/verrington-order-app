@@ -1,13 +1,17 @@
 // src/app/api/orders/[id]/route.ts
+export const runtime = "nodejs";
+
 import { NextRequest, NextResponse } from "next/server";
 import { getPrisma } from "@/lib/prisma";
 
 export async function GET(
   _req: NextRequest,
-  context: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
-    const { id } = await context.params;
+    const prisma = await getPrisma();  // ✅ define prisma FIRST
+
+    const id = params?.id;
 
     if (!id) {
       return NextResponse.json({ error: "Invalid order id" }, { status: 400 });
@@ -15,34 +19,17 @@ export async function GET(
 
     const order = await prisma.order.findUnique({
       where: { id },
-      include: {
-        items: true, // keep simple; add nested includes once schema confirms relations
-      },
+      include: { items: true },
     });
 
     if (!order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
-    const items = order.items ?? [];
-    const subtotalPence = items.reduce(
-      (sum: number, i: any) => sum + (i.lineTotalPence ?? 0),
-      0
-    );
+    return NextResponse.json({ ok: true, order });
 
-    return NextResponse.json(
-      {
-        ok: true,
-        order: {
-          ...order,
-          items,
-          subtotalPence,
-        },
-      },
-      { status: 200 }
-    );
-  } catch (err) {
-    console.error("GET /api/orders/[id] failed", err);
+  } catch (err: any) {
+    console.error("[api/orders/[id]]", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

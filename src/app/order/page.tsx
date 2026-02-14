@@ -44,6 +44,10 @@ export default function OrderPage() {
   const [customerEmail, setCustomerEmail] = useState("");
   const [postcode, setPostcode] = useState("");
 
+  const [paymentMethod, setPaymentMethod] = useState<
+    "MOLLIE" | "BACS" | "CASH"
+  >("BACS");
+
   const [deliveryNotes, setDeliveryNotes] = useState("");
   const [preferredDay, setPreferredDay] = useState(""); // yyyy-mm-dd
   const [showMobileSummary, setShowMobileSummary] = useState(false);
@@ -64,7 +68,10 @@ export default function OrderPage() {
   }
 
   function dec(productId: string) {
-    setQty((prev) => ({ ...prev, [productId]: Math.max(0, (prev[productId] ?? 0) - 1) }));
+    setQty((prev) => ({
+      ...prev,
+      [productId]: Math.max(0, (prev[productId] ?? 0) - 1),
+    }));
   }
 
   function remove(productId: string) {
@@ -186,6 +193,7 @@ export default function OrderPage() {
           preferredDay: preferredDay || undefined,
           deliveryNotes: deliveryNotes.trim() || undefined,
           items,
+          checkoutPaymentMethod: paymentMethod,
         }),
       });
 
@@ -193,6 +201,25 @@ export default function OrderPage() {
 
       if (!res.ok) {
         setError(data?.message ?? data?.error ?? "Order failed. Please try again.");
+        return;
+      }
+
+      // If Mollie selected, start payment immediately
+      if (paymentMethod === "MOLLIE") {
+        const r2 = await fetch("/api/pay/mollie/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: data.orderId }),
+        });
+
+        const j2 = await r2.json().catch(() => ({}));
+        if (r2.ok && j2?.url) {
+          window.location.href = j2.url;
+          return;
+        }
+
+        // fallback: send them to thanks page with ability to click Pay Now / Resume
+        router.push(`/thanks?orderId=${encodeURIComponent(data.orderId)}`);
         return;
       }
 
@@ -210,7 +237,7 @@ export default function OrderPage() {
       <header className="sticky top-0 z-10 border-b bg-[var(--vf-bg)]/70 backdrop-blur">
         <div className="relative">
           <div
-            className="relative h-[105px] sm:h-[125px] md:h-[150px] lg:h-[175px] w-full overflow-hidden bg-cover bg-center"
+            className="relative h-[105px] w-full overflow-hidden bg-cover bg-center sm:h-[125px] md:h-[150px] lg:h-[175px]"
             style={{ backgroundImage: "url('/log-wall.jpg')" }}
           >
             <div className="absolute inset-0 bg-black/35" />
@@ -228,7 +255,7 @@ export default function OrderPage() {
               <div className="mx-auto flex h-full max-w-5xl items-center justify-between gap-4 px-6">
                 <Link
                   href="/"
-                  className="flex items-center gap-4 rounded-3xl px-4 py-3 sm:px-5 sm:py-4 backdrop-blur-md"
+                  className="flex items-center gap-4 rounded-3xl px-4 py-3 backdrop-blur-md sm:px-5 sm:py-4"
                   style={{
                     background: "rgba(0,0,0,0.35)",
                     border: "1px solid rgba(255,255,255,0.16)",
@@ -242,21 +269,27 @@ export default function OrderPage() {
                       border: "1px solid rgba(0,0,0,0.06)",
                     }}
                   >
-                    <Image src="/logo.png" alt="Verrington Firewood" width={70} height={70} priority />
+                    <Image
+                      src="/logo.png"
+                      alt="Verrington Firewood"
+                      width={70}
+                      height={70}
+                      priority
+                    />
                   </div>
 
                   <div className="leading-tight">
-                    <div className="text-white font-extrabold tracking-tight text-2xl sm:text-3xl md:text-4xl drop-shadow">
+                    <div className="text-2xl font-extrabold tracking-tight text-white drop-shadow sm:text-3xl md:text-4xl">
                       Order Firewood
                     </div>
-                    <div className="mt-1 text-white/90 font-semibold text-sm sm:text-base md:text-lg drop-shadow">
+                    <div className="mt-1 text-sm font-semibold text-white/90 drop-shadow sm:text-base md:text-lg">
                       South Somerset &amp; North Dorset
                     </div>
                   </div>
                 </Link>
 
                 <nav
-                  className="hidden sm:flex items-center gap-2 rounded-3xl px-2 py-2 backdrop-blur-md"
+                  className="hidden items-center gap-2 rounded-3xl px-2 py-2 backdrop-blur-md sm:flex"
                   style={{
                     background: "rgba(0,0,0,0.28)",
                     border: "1px solid rgba(255,255,255,0.14)",
@@ -284,7 +317,7 @@ export default function OrderPage() {
                   </Link>
                 </nav>
 
-                <div className="sm:hidden absolute right-4 top-3">
+                <div className="absolute right-4 top-3 sm:hidden">
                   <div
                     className="flex items-center gap-2 rounded-2xl px-2 py-1 backdrop-blur-md"
                     style={{
@@ -325,7 +358,10 @@ export default function OrderPage() {
         {/* Left column */}
         <section className="space-y-6">
           {/* Intro */}
-          <div className="rounded-3xl border p-6 shadow-sm" style={{ background: "var(--vf-surface)" }}>
+          <div
+            className="rounded-3xl border p-6 shadow-sm"
+            style={{ background: "var(--vf-surface)" }}
+          >
             <h1 className="text-2xl font-extrabold">Place your order</h1>
             <p className="mt-1 text-sm text-[var(--vf-muted)]">
               Choose your logs, add your details, and we’ll confirm delivery by text.
@@ -345,13 +381,21 @@ export default function OrderPage() {
           </div>
 
           {/* Products */}
-          <div className="rounded-3xl border p-6 shadow-sm" style={{ background: "var(--vf-surface)" }}>
+          <div
+            className="rounded-3xl border p-6 shadow-sm"
+            style={{ background: "var(--vf-surface)" }}
+          >
             <div className="flex items-end justify-between gap-4">
               <div>
                 <h2 className="text-lg font-extrabold">Products</h2>
-                <p className="mt-1 text-sm text-[var(--vf-muted)]">Tap + / – to choose quantities.</p>
+                <p className="mt-1 text-sm text-[var(--vf-muted)]">
+                  Tap + / – to choose quantities.
+                </p>
               </div>
-              <Link href="/prices" className="text-sm font-semibold underline underline-offset-4">
+              <Link
+                href="/prices"
+                className="text-sm font-semibold underline underline-offset-4"
+              >
                 View prices
               </Link>
             </div>
@@ -373,8 +417,8 @@ export default function OrderPage() {
                   return (
                     <div key={p.id} className="rounded-3xl border p-4">
                       <div className="flex items-start justify-between gap-4">
-                        <div className="flex items-start gap-4 min-w-0">
-                          <div className="relative h-16 w-20 sm:h-20 sm:w-28 overflow-hidden rounded-2xl border bg-black/[0.03] shrink-0">
+                        <div className="flex min-w-0 items-start gap-4">
+                          <div className="relative h-16 w-20 shrink-0 overflow-hidden rounded-2xl border bg-black/[0.03] sm:h-20 sm:w-28">
                             <Image
                               src={p.imageUrl || "/products/placeholder.jpg"}
                               alt={p.imageAlt ?? p.name}
@@ -387,9 +431,13 @@ export default function OrderPage() {
                           <div className="min-w-0">
                             <div className="font-bold">{p.name}</div>
                             {p.description ? (
-                              <div className="mt-1 text-sm text-[var(--vf-muted)]">{p.description}</div>
+                              <div className="mt-1 text-sm text-[var(--vf-muted)]">
+                                {p.description}
+                              </div>
                             ) : null}
-                            <div className="mt-2 font-semibold">{formatGBPFromPence(p.pricePence)}</div>
+                            <div className="mt-2 font-semibold">
+                              {formatGBPFromPence(p.pricePence)}
+                            </div>
 
                             {q > 0 ? (
                               <div className="mt-1 text-sm text-[var(--vf-muted)]">
@@ -433,8 +481,11 @@ export default function OrderPage() {
             )}
           </div>
 
-          {/* ✅ NEW: Basket panel (desktop + mobile) */}
-          <div className="rounded-3xl border p-6 shadow-sm" style={{ background: "var(--vf-surface)" }}>
+          {/* Basket */}
+          <div
+            className="rounded-3xl border p-6 shadow-sm"
+            style={{ background: "var(--vf-surface)" }}
+          >
             <h2 className="text-lg font-extrabold">Basket</h2>
             <p className="mt-1 text-sm text-[var(--vf-muted)]">
               Double-check your order before submitting.
@@ -451,8 +502,8 @@ export default function OrderPage() {
                   return (
                     <div key={i.productId} className="rounded-3xl border p-4">
                       <div className="flex items-start justify-between gap-4">
-                        <div className="flex items-start gap-4 min-w-0">
-                          <div className="relative h-12 w-14 overflow-hidden rounded-2xl border bg-black/[0.03] shrink-0">
+                        <div className="flex min-w-0 items-start gap-4">
+                          <div className="relative h-12 w-14 shrink-0 overflow-hidden rounded-2xl border bg-black/[0.03]">
                             <Image
                               src={p?.imageUrl || "/products/placeholder.jpg"}
                               alt={p?.imageAlt ?? i.name}
@@ -491,7 +542,10 @@ export default function OrderPage() {
                               inputMode="numeric"
                               className="h-9 w-14 rounded-xl border bg-transparent px-2 text-center font-bold outline-none focus:ring-2"
                               onChange={(e) => {
-                                const n = parseInt(e.target.value.replace(/[^\d]/g, ""), 10);
+                                const n = parseInt(
+                                  e.target.value.replace(/[^\d]/g, ""),
+                                  10
+                                );
                                 setProductQty(i.productId, Number.isFinite(n) ? n : 0);
                               }}
                               disabled={submitting}
@@ -526,10 +580,13 @@ export default function OrderPage() {
                 <div className="rounded-3xl border p-4">
                   <div className="flex items-center justify-between">
                     <div className="text-sm text-[var(--vf-muted)]">Subtotal</div>
-                    <div className="text-lg font-extrabold">{formatGBPFromPence(subtotalPence)}</div>
+                    <div className="text-lg font-extrabold">
+                      {formatGBPFromPence(subtotalPence)}
+                    </div>
                   </div>
                   <p className="mt-2 text-xs text-[var(--vf-muted)]">
-                    Delivery fee (if any) and final totals are confirmed after submission based on your postcode.
+                    Delivery fee (if any) and final totals are confirmed after submission
+                    based on your postcode.
                   </p>
                 </div>
               </div>
@@ -537,7 +594,10 @@ export default function OrderPage() {
           </div>
 
           {/* Details */}
-          <div className="rounded-3xl border p-6 shadow-sm" style={{ background: "var(--vf-surface)" }}>
+          <div
+            className="rounded-3xl border p-6 shadow-sm"
+            style={{ background: "var(--vf-surface)" }}
+          >
             <h2 className="text-lg font-extrabold">Your details</h2>
 
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -593,7 +653,9 @@ export default function OrderPage() {
               </div>
 
               <div className="sm:col-span-2">
-                <label className="text-sm font-semibold">Preferred delivery day (optional)</label>
+                <label className="text-sm font-semibold">
+                  Preferred delivery day (optional)
+                </label>
                 <input
                   type="date"
                   value={preferredDay}
@@ -618,21 +680,93 @@ export default function OrderPage() {
             </div>
           </div>
 
-          {/* What happens next (trust + reassurance) */}
-          <div className="rounded-3xl border p-6 shadow-sm" style={{ background: "var(--vf-surface)" }}>
+          {/* Payment method */}
+          <div
+            className="rounded-3xl border p-6 shadow-sm"
+            style={{ background: "var(--vf-surface)" }}
+          >
+            <h2 className="text-lg font-extrabold">Payment method</h2>
+            <p className="mt-1 text-sm text-[var(--vf-muted)]">
+              Choose how you’d like to pay. Bank transfer and cash are manual (no fees).
+              Card/Apple Pay uses Mollie.
+            </p>
+
+            <div className="mt-4 space-y-3">
+              <label className="flex cursor-pointer items-start gap-3 rounded-3xl border p-4 hover:bg-black/5">
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  className="mt-1"
+                  checked={paymentMethod === "MOLLIE"}
+                  onChange={() => setPaymentMethod("MOLLIE")}
+                  disabled={submitting}
+                />
+                <div>
+                  <div className="font-bold">Pay now (Card / Apple Pay)</div>
+                  <div className="mt-1 text-sm text-[var(--vf-muted)]">
+                    Secure checkout via Mollie.
+                  </div>
+                </div>
+              </label>
+
+              <label className="flex cursor-pointer items-start gap-3 rounded-3xl border p-4 hover:bg-black/5">
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  className="mt-1"
+                  checked={paymentMethod === "BACS"}
+                  onChange={() => setPaymentMethod("BACS")}
+                  disabled={submitting}
+                />
+                <div>
+                  <div className="font-bold">Bank transfer (BACS)</div>
+                  <div className="mt-1 text-sm text-[var(--vf-muted)]">
+                    We’ll show bank details after you place the order.
+                  </div>
+                </div>
+              </label>
+
+              <label className="flex cursor-pointer items-start gap-3 rounded-3xl border p-4 hover:bg-black/5">
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  className="mt-1"
+                  checked={paymentMethod === "CASH"}
+                  onChange={() => setPaymentMethod("CASH")}
+                  disabled={submitting}
+                />
+                <div>
+                  <div className="font-bold">Pay on delivery (Cash)</div>
+                  <div className="mt-1 text-sm text-[var(--vf-muted)]">
+                    Pay when your logs arrive.
+                  </div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          {/* What happens next */}
+          <div
+            className="rounded-3xl border p-6 shadow-sm"
+            style={{ background: "var(--vf-surface)" }}
+          >
             <h2 className="text-lg font-extrabold">What happens next?</h2>
+
             <div className="mt-3 space-y-2 text-sm text-[var(--vf-muted)]">
               <div className="flex gap-2">
                 <span aria-hidden>①</span>
-                <span>You place your order (no payment taken online).</span>
+                <span>You place your order.</span>
               </div>
               <div className="flex gap-2">
                 <span aria-hidden>②</span>
-                <span>We confirm delivery day & any delivery charge by text.</span>
+                <span>We confirm delivery day &amp; any delivery charge by text.</span>
               </div>
               <div className="flex gap-2">
                 <span aria-hidden>③</span>
-                <span>Delivery arrives — pay on delivery as agreed.</span>
+                <span>
+                  Pay by your chosen method (Card/Apple Pay, bank transfer, or cash
+                  on delivery).
+                </span>
               </div>
             </div>
           </div>
@@ -652,22 +786,31 @@ export default function OrderPage() {
             </button>
 
             <p className="mt-2 text-xs text-[var(--vf-muted)]">
-              Delivery fee (if any) and totals are confirmed after submission based on your postcode.
+              Delivery fee (if any) and totals are confirmed after submission based on
+              your postcode.
             </p>
           </div>
         </section>
 
         {/* Right column summary */}
         <aside className="hidden lg:block">
-          <div className="sticky top-28 rounded-3xl border p-6 shadow-sm" style={{ background: "var(--vf-surface)" }}>
+          <div
+            className="sticky top-28 rounded-3xl border p-6 shadow-sm"
+            style={{ background: "var(--vf-surface)" }}
+          >
             <h2 className="text-lg font-extrabold">Order summary</h2>
 
             <div className="mt-4 space-y-2">
               {items.length === 0 ? (
-                <div className="text-sm text-[var(--vf-muted)]">No items selected yet.</div>
+                <div className="text-sm text-[var(--vf-muted)]">
+                  No items selected yet.
+                </div>
               ) : (
                 items.map((i) => (
-                  <div key={i.productId} className="flex items-start justify-between gap-3 text-sm">
+                  <div
+                    key={i.productId}
+                    className="flex items-start justify-between gap-3 text-sm"
+                  >
                     <div className="min-w-0">
                       <div className="text-[var(--vf-muted)]">
                         {i.quantity} × {i.name}
@@ -692,9 +835,13 @@ export default function OrderPage() {
             <div className="mt-4 border-t pt-4 text-sm">
               <div className="flex items-center justify-between">
                 <span className="text-[var(--vf-muted)]">Subtotal</span>
-                <span className="text-lg font-extrabold">{formatGBPFromPence(subtotalPence)}</span>
+                <span className="text-lg font-extrabold">
+                  {formatGBPFromPence(subtotalPence)}
+                </span>
               </div>
-              <p className="mt-2 text-xs text-[var(--vf-muted)]">Delivery is confirmed after ordering.</p>
+              <p className="mt-2 text-xs text-[var(--vf-muted)]">
+                Delivery is confirmed after ordering.
+              </p>
             </div>
 
             <div className="mt-4">
@@ -715,7 +862,7 @@ export default function OrderPage() {
       </div>
 
       {/* Mobile bottom bar with mini basket */}
-      <div className="lg:hidden fixed inset-x-0 bottom-0 z-20 border-t bg-[var(--vf-bg)]/95 backdrop-blur">
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t bg-[var(--vf-bg)]/95 backdrop-blur lg:hidden">
         <div className="mx-auto max-w-5xl px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <button
@@ -725,9 +872,14 @@ export default function OrderPage() {
               aria-expanded={showMobileSummary}
             >
               <div className="text-xs text-[var(--vf-muted)]">
-                Subtotal {items.length ? `• ${items.length} item${items.length === 1 ? "" : "s"}` : ""}
+                Subtotal{" "}
+                {items.length
+                  ? `• ${items.length} item${items.length === 1 ? "" : "s"}`
+                  : ""}
               </div>
-              <div className="text-base font-extrabold">{formatGBPFromPence(subtotalPence)}</div>
+              <div className="text-base font-extrabold">
+                {formatGBPFromPence(subtotalPence)}
+              </div>
               <div className="mt-1 text-xs text-[var(--vf-muted)]">
                 Tap to {showMobileSummary ? "hide" : "view"} basket
               </div>
@@ -747,15 +899,23 @@ export default function OrderPage() {
           </div>
 
           {showMobileSummary && (
-            <div className="mt-3 rounded-2xl border p-3" style={{ background: "var(--vf-surface)" }}>
+            <div
+              className="mt-3 rounded-2xl border p-3"
+              style={{ background: "var(--vf-surface)" }}
+            >
               {items.length === 0 ? (
-                <div className="text-sm text-[var(--vf-muted)]">No items selected yet.</div>
+                <div className="text-sm text-[var(--vf-muted)]">
+                  No items selected yet.
+                </div>
               ) : (
                 <div className="space-y-2">
                   {items.map((i) => (
-                    <div key={i.productId} className="flex items-center justify-between gap-3 text-sm">
+                    <div
+                      key={i.productId}
+                      className="flex items-center justify-between gap-3 text-sm"
+                    >
                       <div className="min-w-0">
-                        <div className="text-[var(--vf-muted)] truncate">
+                        <div className="truncate text-[var(--vf-muted)]">
                           {i.quantity} × {i.name}
                         </div>
                         <button
@@ -773,9 +933,11 @@ export default function OrderPage() {
                     </div>
                   ))}
 
-                  <div className="mt-3 border-t pt-3 flex justify-between text-sm">
+                  <div className="mt-3 flex justify-between border-t pt-3 text-sm">
                     <span className="text-[var(--vf-muted)]">Subtotal</span>
-                    <span className="text-base font-extrabold">{formatGBPFromPence(subtotalPence)}</span>
+                    <span className="text-base font-extrabold">
+                      {formatGBPFromPence(subtotalPence)}
+                    </span>
                   </div>
 
                   <p className="mt-2 text-xs text-[var(--vf-muted)]">
