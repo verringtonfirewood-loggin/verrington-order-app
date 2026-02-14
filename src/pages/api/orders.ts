@@ -8,15 +8,6 @@ function toPositiveInt(input: unknown, fieldName: string): number {
   return n;
 }
 
-/**
- * UK postcode normalization:
- * - trim
- * - uppercase
- * - remove all spaces
- * - if length >= 5, insert a space before the last 3 chars
- *   e.g. "BA98BW" -> "BA9 8BW"
- * - fallback: collapse whitespace + uppercase
- */
 function normalizeUKPostcode(input: unknown): string {
   const raw = String(input ?? "").trim();
   if (!raw) throw new Error("Missing postcode");
@@ -32,10 +23,6 @@ function normalizeUKPostcode(input: unknown): string {
   return raw.toUpperCase().replace(/\s+/g, " ");
 }
 
-/**
- * ✅ Delivery pricing bands (edit values to match your business rules)
- * This is authoritative and computed server-side.
- */
 function deliveryFeeForPostcodePence(postcode: string): number {
   const outward = (postcode.split(" ")[0] || "").toUpperCase();
 
@@ -93,11 +80,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!body) return res.status(400).json({ ok: false, message: "Invalid JSON body" });
 
     const postcode = normalizeUKPostcode(body?.postcode ?? "TA1 1AA");
-
-    // ✅ Payment method saved on the order
     const checkoutPaymentMethod = parseCheckoutPaymentMethod(body?.checkoutPaymentMethod);
 
-    // Optional extras from your UI (safe strings)
     const preferredDay =
       typeof body?.preferredDay === "string" && body.preferredDay.trim()
         ? body.preferredDay.trim()
@@ -110,7 +94,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const hasRealItems = Array.isArray(body?.items) && body.items.length > 0;
 
-    // Proof fallback if no items provided
     const rawItems: any[] = hasRealItems
       ? body.items
       : [
@@ -121,8 +104,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           },
         ];
 
-    // Validate incoming quantities + productIds
-    const requested: RequestedItem[] = rawItems.map((i: any, idx: number): RequestedItem => {
+    const requested: RequestedItem[] = rawItems.map((i: any, idx: number) => {
       const productId = String(i?.productId ?? "").trim();
       if (!productId) throw new Error(`Item ${idx + 1}: missing productId`);
 
@@ -130,31 +112,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return { productId, quantity };
     });
 
-    // ✅ Authoritative pricing:
-    // For real orders, pull prices + names from DB by productId
     let itemCreates: ItemCreate[] = [];
 
     if (hasRealItems) {
-      const productIds = Array.from(new Set(requested.map((r: RequestedItem) => r.productId)));
+      const productIds = Array.from(new Set(requested.map(r => r.productId)));
 
       const dbProducts = await prisma.product.findMany({
-        where: {
-          id: { in: productIds },
-          isActive: true,
-        },
+        where: { id: { in: productIds }, isActive: true },
         select: { id: true, name: true, pricePence: true },
       });
 
-      const productMap = new Map(dbProducts.map((p) => [p.id, p]));
+      const productMap = new Map(dbProducts.map(p => [p.id, p]));
 
-      // Ensure all productIds exist + active
       for (const r of requested) {
         if (!productMap.has(r.productId)) {
           throw new Error(`Unknown or inactive product: ${r.productId}`);
         }
       }
 
-      itemCreates = requested.map((r) => {
+      itemCreates = requested.map(r => {
         const p = productMap.get(r.productId)!;
         return {
           productId: p.id,
@@ -164,7 +140,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         };
       });
     } else {
-      // Proof order: keep deterministic values
       itemCreates = [
         {
           productId: "proof-product",
@@ -175,131 +150,99 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ];
     }
 
-    // Totals computed from authoritative itemCreates
     const subtotalPence = itemCreates.reduce((sum, i) => sum + i.pricePence * i.quantity, 0);
     const deliveryFeePence = deliveryFeeForPostcodePence(postcode);
     const totalPence = subtotalPence + deliveryFeePence;
 
-    // ✅ Payment status defaults:
-    // - Mollie starts PENDING (webhook will flip to PAID/FAILED/etc)
-    // - BACS/CASH start UNPAID
     const paymentStatus = checkoutPaymentMethod === "MOLLIE" ? "PENDING" : "UNPAID";
 
-    const order = await prisma.order.create({
-      data: {
-        customerName:
-          typeof body?.customerName === "string" && body.customerName.trim()
-            ? body.customerName.trim()
-            : "Vercel Proof",
-        customerPhone:
-          typeof body?.customerPhone === "string" && body.customerPhone.trim()
-            ? body.customerPhone.trim()
-            : "07000000000",
-        customerEmail:
-          typeof body?.customerEmail === "string" && body.customerEmail.trim()
-            ? body.customerEmail.trim()
-            : null,
-        postcode,
+    // ✅ VF-ORDER-001 generation (transaction safe)
+    const order = await prisma.$transaction(async (tx) => {
+      const counter = await tx.orderCounter.upsert({
+        where: { id: 1 },
+        update: {},
+        create: { id: 1, next: 1 },
+      });
 
-        // ✅ totals stored (authoritative)
-        subtotalPence,
-        deliveryFeePence,
-        totalPence,
+      const n = counter.next;
 
-        // ✅ extras stored
-        preferredDay,
-        deliveryNotes,
+      await tx.orderCounter.update({
+        where: { id: 1 },
+        data: { next: { increment: 1 } },
+      });
 
-        // ✅ status standardised (keep your existing approach)
-        status:
-          typeof body?.status === "string" && body.status.trim()
-            ? body.status.trim()
-            : "NEW",
+      const orderNumber = `VF-ORDER-${String(n).padStart(3, "0")}`;
 
-        // ✅ NEW: persisted payment choice + status
-        checkoutPaymentMethod,
-        paymentStatus,
+      return tx.order.create({
+        data: {
+          orderNumber,
 
-        items: {
-          create: itemCreates.map((i) => ({
-            productId: i.productId,
-            name: i.name,
-            pricePence: i.pricePence,
-            quantity: i.quantity,
-          })),
-        },
-      },
-      include: { items: true },
-    });
+          customerName:
+            typeof body?.customerName === "string" && body.customerName.trim()
+              ? body.customerName.trim()
+              : "Vercel Proof",
 
-    const isProofOrder = !hasRealItems;
+          customerPhone:
+            typeof body?.customerPhone === "string" && body.customerPhone.trim()
+              ? body.customerPhone.trim()
+              : "07000000000",
 
-    if (!isProofOrder) {
-      try {
-        await sendAdminNewOrderEmail({
-          orderId: order.id,
-          createdAt: order.createdAt.toISOString(),
-          customerName: order.customerName,
-          customerPhone: order.customerPhone,
-          customerEmail: order.customerEmail ?? undefined,
-          postcode: order.postcode,
+          customerEmail:
+            typeof body?.customerEmail === "string" && body.customerEmail.trim()
+              ? body.customerEmail.trim()
+              : null,
 
-          totalPence,
-          status: order.status,
-
-          items: (order.items || []).map((it: any) => ({
-            name: it.name,
-            quantity: it.quantity,
-            pricePence: it.pricePence,
-          })),
-
-          // ok if your mailer ignores unknown fields
+          postcode,
           subtotalPence,
           deliveryFeePence,
-        } as any);
+          totalPence,
+          preferredDay,
+          deliveryNotes,
 
-        if (String(process.env.SEND_CUSTOMER_EMAIL || "false") === "true" && order.customerEmail) {
-          await sendCustomerConfirmationEmail({
-            to: order.customerEmail,
-            orderId: order.id,
-            customerName: order.customerName,
-            postcode: order.postcode,
+          status:
+            typeof body?.status === "string" && body.status.trim()
+              ? body.status.trim()
+              : "NEW",
 
-            totalPence,
+          checkoutPaymentMethod,
+          paymentStatus,
 
-            items: (order.items || []).map((it: any) => ({
-              name: it.name,
-              quantity: it.quantity,
+          items: {
+            create: itemCreates.map(i => ({
+              productId: i.productId,
+              name: i.name,
+              pricePence: i.pricePence,
+              quantity: i.quantity,
             })),
-
-            // ok if your mailer ignores unknown fields
-            subtotalPence,
-            deliveryFeePence,
-          } as any);
-        }
-      } catch (e) {
-        console.error("Email send failed:", e);
-      }
-    }
-
-    return res.status(201).json({
-      ok: true,
-      proofTag,
-      orderId: order.id,
-      createdAt: order.createdAt,
-
-      subtotalPence,
-      deliveryFeePence,
-      totalPence,
-
-      postcode: order.postcode,
-      itemCount: order.items.length,
-
-      // helpful for UI / debugging
-      checkoutPaymentMethod,
-      paymentStatus,
+          },
+        },
+        include: { items: true },
+      });
     });
-  } catch (err: any) {
+
+// ✅ Send emails AFTER the transaction succeeds (never inside the transaction)
+try {
+  await Promise.allSettled([
+    sendAdminNewOrderEmail({ orderId: order.id }),
+    sendCustomerConfirmationEmail({ orderId: order.id }),
+  ]);
+} catch (e) {
+  console.error("Email send failed:", e);
+}
+
+return res.status(201).json({
+  ok: true,
+  orderId: order.id,
+  orderNumber: order.orderNumber,
+  createdAt: order.createdAt,
+  subtotalPence,
+  deliveryFeePence,
+  totalPence,
+  checkoutPaymentMethod,
+  paymentStatus,
+});  
+
+} catch (err: any) {
     console.error("POST /api/orders failed:", err);
     return res.status(400).json({ ok: false, message: err?.message ?? String(err) });
   }

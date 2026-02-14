@@ -27,6 +27,8 @@ type OrderItem = {
 
 type OrderPayload = {
   id: string;
+  orderNumber?: string | null; // ✅ friendly reference VF-ORDER-001
+
   createdAt: string;
   postcode: string;
   customerName: string;
@@ -57,37 +59,59 @@ export default function ThanksClient() {
   const [order, setOrder] = useState<OrderPayload | null>(null);
   const [startingPay, setStartingPay] = useState(false);
 
+  const displayRef = useMemo(() => {
+    return order?.orderNumber ?? orderId;
+  }, [order?.orderNumber, orderId]);
+
   useEffect(() => {
     let cancelled = false;
+    let timer: any = null;
 
-    async function load() {
+    async function load(showSpinner = true) {
       if (!orderId) {
         setOrder(null);
         return;
       }
 
-      setLoading(true);
+      if (showSpinner) setLoading(true);
       setErr(null);
 
       try {
-        const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}`);
+        const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
+          cache: "no-store",
+          headers: { "Cache-Control": "no-cache" },
+        });
+
         const data = await safeJson(res);
 
         if (!res.ok || !data || (data as any)?.ok !== true) {
           throw new Error((data as any)?.error ?? "Failed to load order");
         }
 
-        if (!cancelled) setOrder((data as any).order as OrderPayload);
+        const nextOrder = (data as any).order as OrderPayload;
+
+        if (!cancelled) setOrder(nextOrder);
+
+        if (
+          !cancelled &&
+          nextOrder.checkoutPaymentMethod === "MOLLIE" &&
+          nextOrder.paymentStatus === "PENDING"
+        ) {
+          timer = setTimeout(() => load(false), 2500);
+        }
       } catch (e: any) {
         if (!cancelled) setErr(e?.message ?? "Failed to load order");
+        if (!cancelled) timer = setTimeout(() => load(false), 4000);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && showSpinner) setLoading(false);
       }
     }
 
-    load();
+    load(true);
+
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [orderId]);
 
@@ -128,77 +152,233 @@ export default function ThanksClient() {
 
   return (
     <main className="min-h-screen bg-[var(--vf-bg)] text-[var(--vf-text)]">
-      <div className="mx-auto max-w-4xl px-6 py-12">
-        <div className="rounded-3xl border p-8 shadow-sm" style={{ background: "var(--vf-surface)" }}>
-          <h1 className="text-3xl font-extrabold">Order received</h1>
-
-          <div className="mt-4 text-sm text-[var(--vf-muted)]">
-            Reference: <span className="font-mono">{orderId}</span>
+      <div className="mx-auto max-w-5xl px-6 py-10">
+        {/* Branded header */}
+        <header className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <img
+              src="/logo.png"
+              alt="Verrington Firewood"
+              className="h-12 w-12 rounded-2xl object-cover shadow-sm"
+            />
+            <div className="leading-tight">
+              <div className="text-lg font-extrabold tracking-tight">Verrington Firewood</div>
+              <div className="text-sm text-[var(--vf-muted)]">
+                South Somerset &amp; North Dorset
+              </div>
+            </div>
           </div>
 
-          {loading && <p className="mt-4 text-sm">Loading order…</p>}
-          {err && <p className="mt-4 text-sm text-red-600">{err}</p>}
+          <Link
+            href="/order"
+            className="rounded-2xl border px-4 py-2 text-sm font-semibold hover:bg-black/5"
+          >
+            Order again
+          </Link>
+        </header>
 
-          {order && (
-            <>
-              {/* Payment block */}
-              <div className="mt-6 rounded-3xl border p-5 text-sm">
-                <div className="font-bold">Payment</div>
-                <div className="mt-2 text-[var(--vf-muted)]">Method: {order.checkoutPaymentMethod}</div>
-                <div className="text-[var(--vf-muted)]">Status: {order.paymentStatus}</div>
+        {/* Hero / thank you */}
+        <section
+          className="mt-6 overflow-hidden rounded-[28px] border shadow-sm"
+          style={{ background: "var(--vf-surface)" }}
+        >
+          <div
+            className="p-8 md:p-10"
+            style={{
+              background:
+                "radial-gradient(1200px 400px at 20% 0%, rgba(34,197,94,0.12), transparent 60%)," +
+                "linear-gradient(135deg, rgba(120,53,15,0.10), transparent 55%)," +
+                "linear-gradient(0deg, rgba(0,0,0,0.02), rgba(0,0,0,0.02))",
+            }}
+          >
+            <div className="flex flex-col gap-2">
+              <h1 className="text-4xl font-extrabold tracking-tight">Thank you — order received</h1>
+              <p className="text-sm text-[var(--vf-muted)]">
+                We’ve got it. We’ll confirm your delivery day and keep you updated.
+              </p>
 
-                {order.checkoutPaymentMethod === "MOLLIE" && (
-                  <div className="mt-3">
-                    {order.paymentStatus === "PAID" ? (
-                      <div className="text-green-700 font-semibold">Payment received ✅</div>
-                    ) : (
-                      <>
-                        <p className="text-[var(--vf-muted)]">Secure online payment (Card / Apple Pay)</p>
+              <div className="mt-3 inline-flex items-center gap-2 rounded-2xl border bg-white/50 px-4 py-2 text-sm">
+                <span className="text-[var(--vf-muted)]">Reference</span>
+                <span className="font-mono font-semibold">{displayRef}</span>
+              </div>
+            </div>
+          </div>
 
-                        {order.mollieCheckoutUrl ? (
-                          <a
-                            href={order.mollieCheckoutUrl}
-                            className="mt-2 inline-block rounded-2xl border px-4 py-2 font-semibold hover:bg-black/5"
-                          >
-                            Resume payment
-                          </a>
+          {/* Content */}
+          <div className="p-6 md:p-8">
+            {loading && <p className="mt-1 text-sm text-[var(--vf-muted)]">Loading order…</p>}
+            {err && <p className="mt-3 text-sm text-red-600">{err}</p>}
+
+            {order && (
+              <div className="grid gap-6 md:grid-cols-5">
+                {/* Left: payment + totals */}
+                <div className="md:col-span-3">
+                  <div className="rounded-3xl border p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-bold">Payment</div>
+                        <div className="mt-1 text-sm text-[var(--vf-muted)]">
+                          Method: {order.checkoutPaymentMethod}
+                        </div>
+                        <div className="text-sm text-[var(--vf-muted)]">
+                          Status: {order.paymentStatus}
+                        </div>
+                      </div>
+
+                      {/* Status pill */}
+                      <div
+                        className="rounded-2xl border px-3 py-1 text-xs font-semibold"
+                        style={{
+                          background:
+                            order.paymentStatus === "PAID"
+                              ? "rgba(34,197,94,0.12)"
+                              : "rgba(0,0,0,0.03)",
+                        }}
+                      >
+                        {order.paymentStatus === "PAID" ? "PAID ✅" : "IN PROGRESS"}
+                      </div>
+                    </div>
+
+                    {order.checkoutPaymentMethod === "MOLLIE" && (
+                      <div className="mt-4">
+                        {order.paymentStatus === "PAID" ? (
+                          <div className="rounded-2xl border px-4 py-3">
+                            <div className="text-green-700 font-semibold">Payment received ✅</div>
+                            <div className="mt-1 text-xs text-[var(--vf-muted)]">
+                              Thank you — we’ll schedule your delivery.
+                            </div>
+                          </div>
                         ) : (
-                          <button
-                            onClick={startMolliePayment}
-                            disabled={startingPay}
-                            className="mt-2 rounded-2xl border px-4 py-2 font-semibold hover:bg-black/5 disabled:opacity-50"
-                          >
-                            {startingPay ? "Starting…" : "Pay now"}
-                          </button>
+                          <>
+                            <p className="text-sm text-[var(--vf-muted)]">
+                              Secure online payment (Card / Apple Pay)
+                            </p>
+
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {order.mollieCheckoutUrl ? (
+                                <a
+                                  href={order.mollieCheckoutUrl}
+                                  className="inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm font-semibold hover:bg-black/5"
+                                >
+                                  Resume payment
+                                </a>
+                              ) : (
+                                <button
+                                  onClick={startMolliePayment}
+                                  disabled={startingPay}
+                                  className="inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm font-semibold hover:bg-black/5 disabled:opacity-50"
+                                >
+                                  {startingPay ? "Starting…" : "Pay now"}
+                                </button>
+                              )}
+
+                              <Link
+                                href="/"
+                                className="inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm font-semibold hover:bg-black/5"
+                              >
+                                Back home
+                              </Link>
+                            </div>
+
+                            {order.paymentStatus === "PENDING" && (
+                              <p className="mt-3 text-xs text-[var(--vf-muted)] animate-pulse">
+                                Checking payment status…
+                              </p>
+                            )}
+                          </>
                         )}
-                      </>
+                      </div>
                     )}
+
+                    {order.checkoutPaymentMethod === "BACS" && (
+                      <div className="mt-4 rounded-2xl border px-4 py-3">
+                        <p className="text-sm text-[var(--vf-muted)]">
+                          Please transfer{" "}
+                          <span className="font-semibold">
+                            {formatGBPFromPence(computedTotalPence)}
+                          </span>{" "}
+                          Reference:{" "}
+                          <span className="font-mono font-semibold">{displayRef}</span>
+                        </p>
+                      </div>
+                    )}
+
+                    {order.checkoutPaymentMethod === "CASH" && (
+                      <div className="mt-4 rounded-2xl border px-4 py-3">
+                        <p className="text-sm text-[var(--vf-muted)]">
+                          Payment will be taken on delivery.
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="mt-5 flex items-center justify-between rounded-2xl border px-4 py-3">
+                      <span className="text-sm text-[var(--vf-muted)]">Total</span>
+                      <span className="text-lg font-extrabold">
+                        {formatGBPFromPence(computedTotalPence)}
+                      </span>
+                    </div>
                   </div>
-                )}
 
-                {order.checkoutPaymentMethod === "BACS" && (
-                  <p className="mt-3 text-[var(--vf-muted)]">
-                    Please transfer {formatGBPFromPence(computedTotalPence)} using reference <b>{order.id}</b>.
-                  </p>
-                )}
+                  <div className="mt-4 flex gap-4 text-sm">
+                    <Link href="/order" className="font-semibold hover:underline">
+                      Place another order
+                    </Link>
+                    <Link href="/" className="font-semibold hover:underline">
+                      Back home
+                    </Link>
+                  </div>
+                </div>
 
-                {order.checkoutPaymentMethod === "CASH" && (
-                  <p className="mt-3 text-[var(--vf-muted)]">Payment will be taken on delivery.</p>
-                )}
+                {/* Right: next steps / reassurance */}
+                <div className="md:col-span-2">
+                  <div className="rounded-3xl border p-5">
+                    <div className="text-sm font-bold">What happens next</div>
+
+                    <ol className="mt-3 space-y-3 text-sm text-[var(--vf-muted)]">
+                      <li className="flex gap-2">
+                        <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border text-xs font-bold">
+                          1
+                        </span>
+                        <span>We’ll review your order and confirm your delivery day.</span>
+                      </li>
+                      <li className="flex gap-2">
+                        <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border text-xs font-bold">
+                          2
+                        </span>
+                        <span>We’ll keep you updated so you know when to expect us.</span>
+                      </li>
+                      <li className="flex gap-2">
+                        <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border text-xs font-bold">
+                          3
+                        </span>
+                        <span>We deliver ready-to-burn firewood to your doorstep.</span>
+                      </li>
+                    </ol>
+
+                    <div className="mt-4 rounded-2xl border bg-white/50 px-4 py-3">
+                      <div className="text-xs font-semibold">Need to change something?</div>
+                      <div className="mt-1 text-xs text-[var(--vf-muted)]">
+                        Reply to your confirmation email, or contact us and quote your reference.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-3xl border p-5">
+                    <div className="text-sm font-bold">Thanks for supporting local</div>
+                    <p className="mt-2 text-sm text-[var(--vf-muted)]">
+                      Your order helps keep logs moving in South Somerset &amp; North Dorset — we
+                      really appreciate it.
+                    </p>
+                  </div>
+                </div>
               </div>
+            )}
+          </div>
+        </section>
 
-              {/* Totals */}
-              <div className="mt-6 text-sm">
-                Total: <span className="font-bold">{formatGBPFromPence(computedTotalPence)}</span>
-              </div>
-
-              <div className="mt-6 flex gap-3">
-                <Link href="/order">Place another order</Link>
-                <Link href="/">Back home</Link>
-              </div>
-            </>
-          )}
-        </div>
+        <footer className="mt-8 text-center text-xs text-[var(--vf-muted)]">
+          © {new Date().getFullYear()} Verrington Firewood
+        </footer>
       </div>
     </main>
   );

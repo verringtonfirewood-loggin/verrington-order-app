@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "mysql"
 }
+
 enum CheckoutPaymentMethod {
   MOLLIE
   CASH
@@ -25,46 +26,60 @@ enum PaymentStatus {
  * Datasource configuration lives in prisma.config.ts
  */
 
+model OrderCounter {
+  id   Int @id @default(1) // single row
+  next Int @default(1)
+}
+
 model Order {
-  id               String   @id @default(cuid())
-  createdAt        DateTime @default(now())
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
 
-  customerName     String
-  customerPhone    String
-  customerEmail    String?
-  postcode         String
+  // Customer / delivery
+  customerName  String
+  customerPhone String?
+  customerEmail String?
+  postcode      String
+  preferredDay  String?
+  deliveryNotes String?
 
-  status           String   @default("NEW")
+  // Order state
+  status String @default("NEW")
 
-  subtotalPence    Int      @default(0)
-  deliveryFeePence Int      @default(0)
-  totalPence       Int
+  // Money
+  subtotalPence    Int @default(0)
+  deliveryFeePence Int @default(0)
+  totalPence       Int @default(0)
 
-  preferredDay     String?
-  deliveryNotes    String?
+  // ✅ Friendly customer-facing reference
+  orderNumber String? @unique
 
-  // ✅ NEW — payment handling
+  // Payment handling
   checkoutPaymentMethod CheckoutPaymentMethod @default(BACS)
   paymentStatus         PaymentStatus         @default(UNPAID)
 
-  molliePaymentId       String? @unique
-  mollieCheckoutUrl     String?
-  paidAt                DateTime?
+  molliePaymentId   String? @unique
+  mollieCheckoutUrl String?
+  paidAt            DateTime?
 
-  items            OrderItem[]
+  // Relations
+  items OrderItem[]
 
   @@index([createdAt])
+  @@index([paymentStatus])
 }
 
 model OrderItem {
-  id         String @id @default(cuid())
-  orderId    String
-  productId  String
-  name       String
-  pricePence Int
-  quantity   Int
+  id        String @id @default(cuid())
+  orderId   String
+  productId String
 
-  order      Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  name          String
+  pricePence    Int
+  quantity      Int
+  lineTotalPence Int @default(0)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
 }
