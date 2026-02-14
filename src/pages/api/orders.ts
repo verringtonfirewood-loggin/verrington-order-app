@@ -222,10 +222,52 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
 // ✅ Send emails AFTER the transaction succeeds (never inside the transaction)
 try {
-  await Promise.allSettled([
-    sendAdminNewOrderEmail({ orderId: order.id }),
-    sendCustomerConfirmationEmail({ orderId: order.id }),
-  ]);
+try {
+  const adminEmailArgs = {
+    orderId: order.id,
+    createdAt: order.createdAt.toISOString(),
+    customerName: order.customerName,
+    customerPhone: order.customerPhone,
+    customerEmail: order.customerEmail ?? null,
+    postcode: order.postcode ?? null,
+    totalPence: order.totalPence ?? null,
+    status: order.status ?? null,
+    items: (order.items ?? []).map((it) => ({
+      name: it.name,
+      quantity: it.quantity,
+      pricePence: it.pricePence ?? null,
+    })),
+  };
+
+  const tasks: Promise<any>[] = [];
+
+  // Admin email (requires ADMIN_NOTIFY_TO env var)
+  tasks.push(sendAdminNewOrderEmail(adminEmailArgs));
+
+  // Customer email (only if enabled + we have an email)
+  if (
+    String(process.env.SEND_CUSTOMER_EMAIL || "false") === "true" &&
+    order.customerEmail
+  ) {
+    const customerEmailArgs = {
+      to: order.customerEmail,
+      orderId: order.id,
+      customerName: order.customerName,
+      postcode: order.postcode ?? undefined,
+      totalPence: order.totalPence ?? undefined,
+      items: (order.items ?? []).map((it) => ({
+        name: it.name,
+        quantity: it.quantity,
+      })),
+    };
+
+    tasks.push(sendCustomerConfirmationEmail(customerEmailArgs));
+  }
+
+  await Promise.allSettled(tasks);
+} catch (e) {
+  console.error("[orders] email error:", e);
+}
 } catch (e) {
   console.error("Email send failed:", e);
 }
