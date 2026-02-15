@@ -4,7 +4,9 @@ import { isAllowedStatus } from "@/lib/orderStatus";
 import { getPrisma } from "@/lib/prisma";
 import { sendCustomerStatusUpdateEmail } from "@/lib/mailer";
 
-export const config = { runtime: "nodejs" };
+export const config = {
+  runtime: "nodejs",
+};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!isAuthed(req)) return unauthorized(res);
@@ -39,6 +41,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     let emailed = false;
 
+    // Only email if we actually have an address
     if (order.customerEmail) {
       await sendCustomerStatusUpdateEmail({
         to: order.customerEmail,
