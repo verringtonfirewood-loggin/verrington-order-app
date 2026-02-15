@@ -1,6 +1,6 @@
 import type { NextPage } from "next";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 type OrderItem = {
   id: string;
@@ -43,26 +43,32 @@ function formatDateTime(iso: string) {
   }
 }
 
+// UTF-8 safe base64 (so passwords with any characters won't break)
+function base64Utf8(input: string) {
+  if (typeof window === "undefined") return "";
+  const bytes = new TextEncoder().encode(input);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return window.btoa(binary);
+}
+
 const STATUSES = ["", "NEW", "PAID", "DISPATCHED", "DELIVERED", "CANCELLED"] as const;
 
 const AdminOrdersPage: NextPage = () => {
-  // Basic auth credentials (used to call /api/admin/orders)
   const [user, setUser] = useState("mike");
   const [pass, setPass] = useState("");
 
-  // Filters
   const [status, setStatus] = useState<string>("");
   const [q, setQ] = useState<string>("");
   const [take, setTake] = useState<number>(50);
 
-  // Data
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
 
   const authHeader = useMemo(() => {
     const pair = `${user}:${pass}`;
-    const b64 = typeof window !== "undefined" ? window.btoa(pair) : "";
+    const b64 = base64Utf8(pair);
     return `Basic ${b64}`;
   }, [user, pass]);
 
@@ -76,18 +82,28 @@ const AdminOrdersPage: NextPage = () => {
   }, [status, q, take]);
 
   async function load() {
+    if (!pass) {
+      setErr("Enter the admin password, then click Load orders.");
+      return;
+    }
+
     setLoading(true);
     setErr(null);
 
     try {
       const res = await fetch(url, {
         method: "GET",
-        headers: {
-          Authorization: authHeader,
-        },
+        headers: { Authorization: authHeader },
       });
 
-      const data = await res.json().catch(() => ({}));
+      // Some failures return HTML; guard parsing
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = { ok: false, error: text?.slice(0, 200) || `HTTP ${res.status}` };
+      }
 
       if (!res.ok || !data?.ok) {
         throw new Error(data?.error ?? `Failed to load orders (HTTP ${res.status})`);
@@ -102,13 +118,6 @@ const AdminOrdersPage: NextPage = () => {
       setLoading(false);
     }
   }
-
-  // Auto-load once password is provided, and whenever filters change
-  useEffect(() => {
-    if (!pass) return;
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, authHeader]);
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -129,23 +138,22 @@ const AdminOrdersPage: NextPage = () => {
           <button
             type="button"
             onClick={load}
-            disabled={!pass || loading}
+            disabled={loading}
             style={{
               padding: "10px 12px",
               borderRadius: 10,
               border: "1px solid #111",
-              background: !pass || loading ? "#999" : "#111",
+              background: loading ? "#999" : "#111",
               color: "white",
-              cursor: !pass || loading ? "not-allowed" : "pointer",
+              cursor: loading ? "not-allowed" : "pointer",
               fontWeight: 700,
             }}
           >
-            {loading ? "Refreshing…" : "Refresh"}
+            {loading ? "Loading…" : "Load orders"}
           </button>
         </div>
       </header>
 
-      {/* Auth */}
       <section style={{ marginTop: 14, border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
         <div style={{ padding: 12, background: "#fafafa", fontWeight: 700 }}>Basic Auth</div>
         <div style={{ padding: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -165,7 +173,7 @@ const AdminOrdersPage: NextPage = () => {
               onChange={(e) => setPass(e.target.value)}
               type="password"
               style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd" }}
-              placeholder="Enter admin password to load"
+              placeholder="Enter admin password, then click Load orders"
             />
           </label>
 
@@ -175,7 +183,6 @@ const AdminOrdersPage: NextPage = () => {
         </div>
       </section>
 
-      {/* Filters */}
       <section style={{ marginTop: 14, border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
         <div style={{ padding: 12, background: "#fafafa", fontWeight: 700 }}>Filters</div>
 
@@ -320,7 +327,7 @@ const AdminOrdersPage: NextPage = () => {
               {!loading && orders.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ padding: 16, fontSize: 13, opacity: 0.7 }}>
-                    No orders match your filters.
+                    No orders match your filters (or click “Load orders”).
                   </td>
                 </tr>
               ) : null}
