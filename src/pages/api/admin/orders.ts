@@ -40,6 +40,48 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const prisma = await getPrisma(); // ✅ FIX: prisma is defined here
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // ✅ your existing basic auth check here
+  // if (!isAuthed(req)) return res.status(401)...
+
+  // ✅ your existing method guard here
+  // if (req.method !== "GET") return res.status(405)...
+
+  const debug = req.query.debug === "1";
+
+  let dbInfo: any = undefined;
+  if (debug) {
+    const [db] = await prisma.$queryRaw<Array<{ db: string }>>`SELECT DATABASE() AS db`;
+    const [host] = await prisma.$queryRaw<Array<{ host: string }>>`SELECT @@hostname AS host`;
+    const [port] = await prisma.$queryRaw<Array<{ port: number }>>`SELECT @@port AS port`;
+    const [version] = await prisma.$queryRaw<Array<{ version: string }>>`SELECT VERSION() AS version`;
+
+    // IMPORTANT: `order` is reserved, keep backticks
+    const [countOrder] = await prisma.$queryRaw<Array<{ c: bigint }>>`
+      SELECT COUNT(*) AS c FROM \`order\`
+    `;
+
+    dbInfo = {
+      database: db?.db ?? null,
+      mysqlHost: host?.host ?? null,
+      mysqlPort: port?.port ?? null,
+      mysqlVersion: version?.version ?? null,
+      count_order_table: Number(countOrder?.c ?? 0),
+    };
+  }
+
+  // ✅ your existing query that returns orders (whatever you already have)
+  const orders = await prisma.order.findMany({
+    orderBy: { createdAt: "desc" },
+    // ... existing filters, includes, etc
+  });
+
+  return res.status(200).json({
+    ok: true,
+    orders,
+    ...(dbInfo ? { dbInfo } : {}),
+  });
+}
 
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
     const status = typeof req.query.status === "string" ? req.query.status.trim() : "";
