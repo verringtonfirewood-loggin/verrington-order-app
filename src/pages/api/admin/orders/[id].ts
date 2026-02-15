@@ -1,153 +1,113 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getPrisma } from "@/lib/prisma";
-import { sendCustomerStatusUpdateEmail } from "@/lib/mailer";
+import { isAuthed, unauthorized } from "@/lib/adminAuth";
 
-const ALLOWED_STATUSES = [
-  "pending",
-  "confirmed",
-  "paid",
-  "out-for-delivery",
-  "delivered",
-  "cancelled",
-] as const;
+type ApiOk = { ok: true; order: AdminOrder };
+type ApiErr = { ok: false; error: string };
 
-type AllowedStatus = (typeof ALLOWED_STATUSES)[number];
+type AdminOrderItem = {
+  id: string;
+  productId: string | null;
+  name: string;
+  quantity: number;
+  pricePence: number;
+};
 
-const ALLOWED_STATUS_SET = new Set<AllowedStatus>(ALLOWED_STATUSES);
+type AdminOrder = {
+  id: string;
+  createdAt: string;
+  status: string;
+  customerName: string;
+  customerPhone: string;
+  customerEmail: string;
+  postcode: string;
+  totalPence: number;
+  subtotalPence?: number;
+  deliveryFeePence?: number;
+  orderNumber: string | null;
+  items: AdminOrderItem[];
+};
 
-function isAllowedStatus(s: unknown): s is AllowedStatus {
-  return typeof s === "string" && ALLOWED_STATUS_SET.has(s as AllowedStatus);
+function toAdminOrder(raw: any): AdminOrder {
+  const itemsRaw: any[] = Array.isArray(raw?.items) ? raw.items : [];
+
+  const mapped: AdminOrder = {
+    id: String(raw.id),
+    createdAt: raw.createdAt instanceof Date ? raw.createdAt.toISOString() : String(raw.createdAt),
+    status: String(raw.status ?? "NEW"),
+    customerName: String(raw.customerName ?? ""),
+    customerPhone: String(raw.customerPhone ?? ""),
+    customerEmail: String(raw.customerEmail ?? ""),
+    postcode: String(raw.postcode ?? ""),
+    totalPence: Number(raw.totalPence ?? 0),
+    orderNumber: raw.orderNumber == null ? null : String(raw.orderNumber),
+    items: itemsRaw.map((it) => ({
+      id: String(it.id),
+      productId: it.productId == null ? null : String(it.productId),
+      name: String(it.name ?? ""),
+      quantity: Number(it.quantity ?? 0),
+      pricePence: Number(it.pricePence ?? 0),
+    })),
+  };
+
+  if (typeof raw.subtotalPence === "number") mapped.subtotalPence = raw.subtotalPence;
+  if (typeof raw.deliveryFeePence === "number") mapped.deliveryFeePence = raw.deliveryFeePence;
+
+  return mapped;
 }
 
-function parseBody(req: NextApiRequest): any {
-  if (typeof req.body === "string") {
-    try {
-      return JSON.parse(req.body);
-    } catch {
-      return null;
-    }
-  }
-  return req.body ?? null;
-}
+export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiOk | ApiErr>) {
+  try {
+    if (!isAuthed(req)) return unauthorized(res);
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
-  const { id } = req.query;
+    const prisma = getPrisma();
+    const id = typeof req.query.id === "string" ? req.query.id : "";
 
-  if (typeof id !== "string" || !id) {
-    return res.status(400).json({ error: "Invalid order id" });
-  }
+    if (!id) return res.status(400).json({ ok: false, error: "Invalid order id" });
 
-  // ---------------- GET ----------------
-  if (req.method === "GET") {
-    try {
+    if (req.method === "GET") {
       const order = await prisma.order.findUnique({
         where: { id },
-        include: { items: true },
+        include: { items: true }, // NO product relation
       });
 
-      if (!order) return res.status(404).json({ error: "Order not found" });
+      if (!order) return res.status(404).json({ ok: false, error: "Order not found" });
 
-      return res.status(200).json({ ok: true, order });
-    } catch (err) {
-      console.error("GET /api/admin/orders/[id] failed:", err);
-      return res.status(500).json({ error: "Server error" });
+      return res.status(200).json({ ok: true, order: toAdminOrder(order) });
     }
-  }
 
-  // ---------------- PATCH ----------------
-  if (req.method === "PATCH") {
-    try {
-      const body = parseBody(req);
-      if (!body) return res.status(400).json({ error: "Invalid JSON body" });
+    if (req.method === "PATCH") {
+      // Minimal safe patch: allow status + orderNumber updates (extend if you want)
+      const { status, orderNumber } = (req.body ?? {}) as {
+        status?: unknown;
+        orderNumber?: unknown;
+      };
 
-      const nextStatus = body.status;
+      const data: any = {};
+      if (typeof status === "string" && status.trim()) data.status = status.trim();
+      if (orderNumber === null) data.orderNumber = null;
+      if (typeof orderNumber === "string") data.orderNumber = orderNumber.trim();
 
-      if (!isAllowedStatus(nextStatus)) {
-        return res.status(400).json({
-          error: "Invalid status",
-          allowed: ALLOWED_STATUSES,
-        });
+      if (Object.keys(data).length === 0) {
+        return res.status(400).json({ ok: false, error: "No valid fields to update" });
       }
-
-      const existing = await prisma.order.findUnique({
-        where: { id },
-        select: {
-          id: true,
-          status: true,
-          customerEmail: true,
-          customerName: true,
-          postcode: true,
-        },
-      });
-
-      if (!existing) return res.status(404).json({ error: "Order not found" });
 
       const updated = await prisma.order.update({
         where: { id },
-        data: { status: nextStatus },
-        include: { items: true },
+        data,
+        include: { items: true }, // keep shape consistent
       });
 
-      // ---- CUSTOMER STATUS EMAIL (filtered + safe) ----
-      const EMAIL_STATUSES = new Set<AllowedStatus>([
-        "paid",
-        "out-for-delivery",
-        "delivered",
-        "cancelled",
-      ]);
-
-      const adminEmails = new Set(
-        [
-          process.env.ADMIN_NOTIFY_TO,
-          process.env.SMTP_USER,
-          "hello@verringtonfirewood.co.uk",
-          "verringtonfirewood@gmail.com",
-        ]
-          .filter(Boolean)
-          .map((e) => String(e).toLowerCase())
-      );
-
-      const customerEmail = String(existing.customerEmail || "").toLowerCase();
-
-      const sendCustomerEmailEnabled =
-        String(process.env.SEND_CUSTOMER_EMAIL || "false") === "true";
-
-      const statusChanged =
-        String(existing.status || "") !== String(nextStatus || "");
-
-      const shouldEmailCustomer =
-        sendCustomerEmailEnabled &&
-        !!existing.customerEmail &&
-        statusChanged &&
-        EMAIL_STATUSES.has(nextStatus) &&
-        !adminEmails.has(customerEmail);
-
-      if (shouldEmailCustomer) {
-        try {
-          await sendCustomerStatusUpdateEmail({
-            to: existing.customerEmail!,
-            orderId: existing.id,
-            customerName: existing.customerName ?? undefined,
-            postcode: existing.postcode ?? undefined,
-            status: nextStatus, // already typed as AllowedStatus
-          });
-        } catch (e) {
-          console.error("Customer status email failed:", e);
-        }
-      }
-      // ---- END CUSTOMER STATUS EMAIL ----
-
-      return res.status(200).json({ ok: true, order: updated });
-    } catch (err: any) {
-      console.error("PATCH /api/admin/orders/[id] failed:", err);
-      return res.status(500).json({ error: err?.message ?? "Server error" });
+      return res.status(200).json({ ok: true, order: toAdminOrder(updated) });
     }
-  }
 
-  // ---------------- METHOD NOT ALLOWED ----------------
-  res.setHeader("Allow", ["GET", "PATCH"]);
-  return res.status(405).json({ error: "Method Not Allowed" });
+    res.setHeader("Allow", "GET, PATCH");
+    return res.status(405).json({ ok: false, error: "Method not allowed" });
+  } catch (err: any) {
+    console.error("/api/admin/orders/[id] error:", err);
+    return res.status(500).json({
+      ok: false,
+      error: err?.message ? String(err.message) : "Internal Server Error",
+    });
+  }
 }

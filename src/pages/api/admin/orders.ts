@@ -1,122 +1,122 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getPrisma } from "@/lib/prisma";
+import { isAuthed, unauthorized } from "@/lib/adminAuth";
 
-/**
- * Basic Auth check
- */
-function isAuthorized(req: NextApiRequest) {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith("Basic ")) return false;
+type ApiOk = { ok: true; orders: AdminOrder[] };
+type ApiErr = { ok: false; error: string };
 
-  const base64 = auth.split(" ")[1];
-  const decoded = Buffer.from(base64, "base64").toString("utf8");
+type AdminOrderItem = {
+  id: string;
+  productId: string | null;
+  name: string;
+  quantity: number;
+  pricePence: number;
+};
 
-  const [user, pass] = decoded.split(":");
+type AdminOrder = {
+  id: string;
+  createdAt: string;
+  status: string;
+  customerName: string;
+  customerPhone: string;
+  customerEmail: string;
+  postcode: string;
+  totalPence: number;
+  subtotalPence?: number;
+  deliveryFeePence?: number;
+  orderNumber: string | null;
+  items: AdminOrderItem[];
+};
 
-  return (
-    user === process.env.ADMIN_USER &&
-    pass === process.env.ADMIN_PASS
-  );
+function toInt(value: unknown, fallback: number): number {
+  const n = typeof value === "string" ? parseInt(value, 10) : typeof value === "number" ? value : NaN;
+  return Number.isFinite(n) ? n : fallback;
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (!isAuthorized(req)) {
-    res.setHeader("WWW-Authenticate", 'Basic realm="Admin Area"');
-    return res.status(401).json({ ok: false, message: "Unauthorized" });
-  }
+function toAdminOrder(raw: any): AdminOrder {
+  // We intentionally do NOT rely on any Product relation.
+  const itemsRaw: any[] = Array.isArray(raw?.items) ? raw.items : [];
 
-  if (req.method !== "GET") {
-    res.setHeader("Allow", ["GET"]);
-    return res.status(405).json({ ok: false, message: "Method Not Allowed" });
-  }
+  const mapped: AdminOrder = {
+    id: String(raw.id),
+    createdAt: raw.createdAt instanceof Date ? raw.createdAt.toISOString() : String(raw.createdAt),
+    status: String(raw.status ?? "NEW"),
+    customerName: String(raw.customerName ?? ""),
+    customerPhone: String(raw.customerPhone ?? ""),
+    customerEmail: String(raw.customerEmail ?? ""),
+    postcode: String(raw.postcode ?? ""),
+    totalPence: Number(raw.totalPence ?? 0),
+    orderNumber: raw.orderNumber == null ? null : String(raw.orderNumber),
+    items: itemsRaw.map((it) => ({
+      id: String(it.id),
+      productId: it.productId == null ? null : String(it.productId),
+      name: String(it.name ?? ""),
+      quantity: Number(it.quantity ?? 0),
+      pricePence: Number(it.pricePence ?? 0),
+    })),
+  };
 
+  // Include these ONLY if they exist on the DB record (no schema coupling).
+  if (typeof raw.subtotalPence === "number") mapped.subtotalPence = raw.subtotalPence;
+  if (typeof raw.deliveryFeePence === "number") mapped.deliveryFeePence = raw.deliveryFeePence;
+
+  return mapped;
+}
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiOk | ApiErr>) {
   try {
-    const prisma = await getPrisma();
+    if (!isAuthed(req)) return unauthorized(res);
 
-    // ✅ Debug toggle
-    const debug = req.query.debug === "1";
-    let dbInfo: any = undefined;
-
-    if (debug) {
-      const [db] = await prisma.$queryRaw<Array<{ db: string }>>`
-        SELECT DATABASE() AS db
-      `;
-
-      const [host] = await prisma.$queryRaw<Array<{ host: string }>>`
-        SELECT @@hostname AS host
-      `;
-
-      const [port] = await prisma.$queryRaw<Array<{ port: number }>>`
-        SELECT @@port AS port
-      `;
-
-      const [version] = await prisma.$queryRaw<Array<{ version: string }>>`
-        SELECT VERSION() AS version
-      `;
-
-      const [countOrder] = await prisma.$queryRaw<Array<{ c: bigint }>>`
-  SELECT COUNT(*) AS c FROM verrington_orders.\`order\`
-`;
-
-      dbInfo = {
-        database: db?.db ?? null,
-        mysqlHost: host?.host ?? null,
-        mysqlPort: port?.port ?? null,
-        mysqlVersion: version?.version ?? null,
-        count_order_table: Number(countOrder?.c ?? 0),
-      };
+    if (req.method !== "GET") {
+      res.setHeader("Allow", "GET");
+      return res.status(405).json({ ok: false, error: "Method not allowed" });
     }
 
-    // ✅ Query filters
-    const q =
-      typeof req.query.q === "string" ? req.query.q.trim() : "";
+    const prisma = getPrisma();
 
-    const status =
-      typeof req.query.status === "string"
-        ? req.query.status.trim()
-        : "";
-
-    const take =
-      typeof req.query.take === "string"
-        ? parseInt(req.query.take, 10)
-        : 50;
+    const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    const status = typeof req.query.status === "string" ? req.query.status.trim() : "";
+    const takeRaw = Array.isArray(req.query.take) ? req.query.take[0] : req.query.take;
+    const take = Math.min(Math.max(toInt(takeRaw, 50), 1), 200);
 
     const where: any = {};
-
-    if (q) {
-      where.OR = [
-        { orderNumber: { contains: q } },
-        { customerName: { contains: q } },
-        { customerEmail: { contains: q } },
-        { postcode: { contains: q } },
-      ];
-    }
 
     if (status) {
       where.status = status;
     }
 
-    // ✅ Main orders query
+    if (q) {
+      // Search across common admin fields. Keep it simple + robust.
+      // NOTE: If a field doesn't exist in your Prisma schema, Prisma will error.
+      // These are very likely present given your admin UI needs.
+      where.OR = [
+        { id: { contains: q } },
+        { customerName: { contains: q, mode: "insensitive" } },
+        { customerEmail: { contains: q, mode: "insensitive" } },
+        { customerPhone: { contains: q, mode: "insensitive" } },
+        { postcode: { contains: q, mode: "insensitive" } },
+        { orderNumber: { contains: q, mode: "insensitive" } },
+      ];
+    }
+
     const orders = await prisma.order.findMany({
       where,
-      take,
       orderBy: { createdAt: "desc" },
+      take,
       include: {
-        items: true,
+        items: true, // NO product relation
       },
     });
 
     return res.status(200).json({
       ok: true,
-      orders,
-      ...(dbInfo ? { dbInfo } : {}),
+      orders: orders.map(toAdminOrder),
     });
-  } catch (e: any) {
-    console.error("Admin Orders Error:", e);
+  } catch (err: any) {
+    console.error("GET /api/admin/orders error:", err);
     return res.status(500).json({
       ok: false,
-      message: "Internal Server Error",
-      error: e?.message ?? null,
+      error: err?.message ? String(err.message) : "Internal Server Error",
     });
   }
 }
