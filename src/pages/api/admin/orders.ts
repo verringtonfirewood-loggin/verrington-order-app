@@ -38,14 +38,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (!requireAdmin(req, res)) return;
 
-  try {
-    const prisma = await getPrisma(); // ✅ FIX: prisma is defined here
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // ✅ your existing basic auth check here
-  // if (!isAuthed(req)) return res.status(401)...
+try {
+  const prisma = await getPrisma();
 
-  // ✅ your existing method guard here
-  // if (req.method !== "GET") return res.status(405)...
+  const debug = req.query.debug === "1";
+  let dbInfo: any = undefined;
+
+  if (debug) {
+    const [db] = await prisma.$queryRaw<Array<{ db: string }>>`SELECT DATABASE() AS db`;
+    const [host] = await prisma.$queryRaw<Array<{ host: string }>>`SELECT @@hostname AS host`;
+    const [port] = await prisma.$queryRaw<Array<{ port: number }>>`SELECT @@port AS port`;
+    const [version] = await prisma.$queryRaw<Array<{ version: string }>>`SELECT VERSION() AS version`;
+    const [countOrder] = await prisma.$queryRaw<Array<{ c: bigint }>>`
+      SELECT COUNT(*) AS c FROM \`order\`
+    `;
+
+    dbInfo = {
+      database: db?.db ?? null,
+      mysqlHost: host?.host ?? null,
+      mysqlPort: port?.port ?? null,
+      mysqlVersion: version?.version ?? null,
+      count_order_table: Number(countOrder?.c ?? 0),
+    };
+  }
+
+  // ... your existing q/status/take/where and prisma.order.findMany below ...
 
   const debug = req.query.debug === "1";
 
