@@ -1,7 +1,7 @@
 import type { NextPage } from "next";
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import type { AllowedStatus } from "@/lib/orderStatus";
+import { useMemo, useState, type CSSProperties } from "react";
+import { ALLOWED_STATUSES, type AllowedStatus } from "@/lib/orderStatus";
 
 type OrderItem = {
   id: string;
@@ -14,7 +14,7 @@ type OrderItem = {
 type Order = {
   id: string;
   createdAt: string;
-  status: string;
+  status: AllowedStatus | string; // tolerate older rows; we’ll display safely
   customerName: string;
   customerPhone: string;
   customerEmail?: string | null;
@@ -53,15 +53,174 @@ function base64Utf8(input: string) {
   return window.btoa(binary);
 }
 
-const STATUSES = [
-  "",
-  "pending",
-  "confirmed",
-  "paid",
-  "out-for-delivery",
-  "delivered",
-  "cancelled",
-] as const;
+const STATUSES = ["", ...ALLOWED_STATUSES] as const;
+
+const STATUS_LABEL: Record<AllowedStatus, string> = {
+  pending: "PENDING",
+  confirmed: "CONFIRMED",
+  paid: "PAID",
+  "out-for-delivery": "OUT FOR DELIVERY",
+  delivered: "DELIVERED",
+  cancelled: "CANCELLED",
+};
+
+const STATUS_STYLE: Record<AllowedStatus, CSSProperties> = {
+  pending: { background: "#fff7ed", borderColor: "#fed7aa", color: "#9a3412" },
+  confirmed: { background: "#eff6ff", borderColor: "#bfdbfe", color: "#1d4ed8" },
+  paid: { background: "#ecfdf5", borderColor: "#a7f3d0", color: "#065f46" },
+  "out-for-delivery": { background: "#f5f3ff", borderColor: "#ddd6fe", color: "#5b21b6" },
+  delivered: { background: "#f0fdf4", borderColor: "#bbf7d0", color: "#166534" },
+  cancelled: { background: "#fef2f2", borderColor: "#fecaca", color: "#991b1b" },
+};
+
+const STATUS_FLOW: AllowedStatus[] = ["pending", "confirmed", "paid", "out-for-delivery", "delivered", "cancelled"];
+
+function normaliseStatus(s: unknown): AllowedStatus | null {
+  if (typeof s !== "string") return null;
+  return (ALLOWED_STATUSES as readonly string[]).includes(s) ? (s as AllowedStatus) : null;
+}
+
+function canMove(from: AllowedStatus, to: AllowedStatus) {
+  if (to === "cancelled") return true;
+  const fi = STATUS_FLOW.indexOf(from);
+  const ti = STATUS_FLOW.indexOf(to);
+  return fi >= 0 && ti >= 0 && ti >= fi;
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const norm = normaliseStatus(status);
+  if (!norm) {
+    return (
+      <span
+        style={{
+          display: "inline-block",
+          padding: "6px 10px",
+          borderRadius: 999,
+          border: "1px solid #ddd",
+          background: "#fafafa",
+          fontWeight: 900,
+          fontSize: 12,
+        }}
+      >
+        {String(status || "—")}
+      </span>
+    );
+  }
+
+  const style = STATUS_STYLE[norm];
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "6px 10px",
+        borderRadius: 999,
+        border: "1px solid",
+        fontWeight: 900,
+        fontSize: 12,
+        ...style,
+      }}
+    >
+      {STATUS_LABEL[norm]}
+    </span>
+  );
+}
+
+function OrderRowActions({
+  order,
+  authHeader,
+  onLocalStatusChange,
+}: {
+  order: Order;
+  authHeader: string;
+  onLocalStatusChange: (id: string, status: AllowedStatus) => void;
+}) {
+  const current = normaliseStatus(order.status) ?? "pending";
+
+  async function setStatus(next: AllowedStatus) {
+    if (!canMove(current, next)) {
+      const ok = confirm(`Move status backwards from "${STATUS_LABEL[current]}" to "${STATUS_LABEL[next]}"?`);
+      if (!ok) return;
+    }
+
+    const res = await fetch(`/api/admin/orders/${order.id}/set-status`, {
+      method: "POST",
+      headers: {
+        Authorization: authHeader,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status: next }),
+    });
+
+    const text = await res.text();
+    let data: any = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { ok: false, error: text?.slice(0, 200) || `HTTP ${res.status}` };
+    }
+
+    if (!res.ok || !data?.ok) {
+      alert(data?.error ?? `Failed to update status (HTTP ${res.status})`);
+      return;
+    }
+
+    onLocalStatusChange(order.id, data.order.status as AllowedStatus);
+  }
+
+  const Btn = ({ s }: { s: AllowedStatus }) => {
+    const active = current === s;
+    return (
+      <button
+        type="button"
+        onClick={() => setStatus(s)}
+        style={{
+          padding: "6px 10px",
+          borderRadius: 10,
+          border: "1px solid #ddd",
+          background: active ? "#111" : "white",
+          color: active ? "white" : "#111",
+          fontWeight: 900,
+          fontSize: 12,
+          cursor: "pointer",
+        }}
+        title={`Set status: ${STATUS_LABEL[s]}`}
+      >
+        {STATUS_LABEL[s]}
+      </button>
+    );
+  };
+
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+      <Btn s="pending" />
+      <Btn s="confirmed" />
+      <Btn s="paid" />
+      <Btn s="out-for-delivery" />
+      <Btn s="delivered" />
+      <Btn s="cancelled" />
+
+      <a
+        href={`/admin/print?id=${order.id}`}
+        target="_blank"
+        rel="noreferrer"
+        style={{
+          padding: "6px 10px",
+          borderRadius: 10,
+          border: "1px solid #ddd",
+          textDecoration: "none",
+          fontWeight: 900,
+          fontSize: 12,
+          background: "#fafafa",
+          color: "#111",
+          whiteSpace: "nowrap",
+        }}
+        title="Open printable delivery docket"
+      >
+        🧾 DOCKET
+      </a>
+    </div>
+  );
+}
 
 const AdminOrdersPage: NextPage = () => {
   const [user, setUser] = useState("mike");
@@ -105,7 +264,6 @@ const AdminOrdersPage: NextPage = () => {
         headers: { Authorization: authHeader },
       });
 
-      // Some failures return HTML; guard parsing
       const text = await res.text();
       let data: any = {};
       try {
@@ -135,7 +293,7 @@ const AdminOrdersPage: NextPage = () => {
   }, [orders]);
 
   return (
-    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
+    <main style={{ maxWidth: 1200, margin: "0 auto", padding: 20 }}>
       <header style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: 24 }}>Admin • Orders</h1>
 
@@ -155,7 +313,7 @@ const AdminOrdersPage: NextPage = () => {
               background: loading ? "#999" : "#111",
               color: "white",
               cursor: loading ? "not-allowed" : "pointer",
-              fontWeight: 700,
+              fontWeight: 800,
             }}
           >
             {loading ? "Loading…" : "Load orders"}
@@ -164,7 +322,7 @@ const AdminOrdersPage: NextPage = () => {
       </header>
 
       <section style={{ marginTop: 14, border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ padding: 12, background: "#fafafa", fontWeight: 700 }}>Basic Auth</div>
+        <div style={{ padding: 12, background: "#fafafa", fontWeight: 800 }}>Basic Auth</div>
         <div style={{ padding: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <label style={{ display: "grid", gap: 6 }}>
             <div style={{ fontSize: 12, opacity: 0.75 }}>Username</div>
@@ -193,25 +351,20 @@ const AdminOrdersPage: NextPage = () => {
       </section>
 
       <section style={{ marginTop: 14, border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ padding: 12, background: "#fafafa", fontWeight: 700 }}>Filters</div>
+        <div style={{ padding: 12, background: "#fafafa", fontWeight: 800 }}>Filters</div>
 
         <div style={{ padding: 12, display: "grid", gap: 12 }}>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {STATUSES.map((s) => {
               const active = status === s;
-const label =
-  s === ""
-    ? "ALL"
-    : s === "out-for-delivery"
-    ? "OUT FOR DELIVERY"
-    : s.toUpperCase();
+              const label = s === "" ? "ALL" : STATUS_LABEL[s as AllowedStatus];
               const count = s === "" ? orders.length : (statusCounts[s] ?? 0);
 
               return (
                 <button
                   key={s}
                   type="button"
-                  onClick={() => setStatus(s)}
+                  onClick={() => setStatus(s as any)}
                   style={{
                     padding: "8px 10px",
                     borderRadius: 999,
@@ -219,11 +372,11 @@ const label =
                     background: active ? "#111" : "white",
                     color: active ? "white" : "#111",
                     cursor: "pointer",
-                    fontWeight: 800,
+                    fontWeight: 900,
                     fontSize: 12,
                   }}
                 >
-                  {label} <span style={{ opacity: active ? 0.9 : 0.6, fontWeight: 700 }}>({count})</span>
+                  {label} <span style={{ opacity: active ? 0.9 : 0.6, fontWeight: 800 }}>({count})</span>
                 </button>
               );
             })}
@@ -269,7 +422,7 @@ const label =
                 border: "1px solid #ddd",
                 background: "white",
                 cursor: "pointer",
-                fontWeight: 700,
+                fontWeight: 800,
               }}
             >
               Clear
@@ -284,13 +437,13 @@ const label =
 
       {err ? (
         <div style={{ marginTop: 14, padding: 12, border: "1px solid #f3c2c2", borderRadius: 12, background: "#fff5f5" }}>
-          <div style={{ fontWeight: 800, color: "crimson" }}>Fix needed</div>
+          <div style={{ fontWeight: 900, color: "crimson" }}>Fix needed</div>
           <div style={{ marginTop: 6 }}>{err}</div>
         </div>
       ) : null}
 
       <section style={{ marginTop: 14, border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ padding: 12, background: "#fafafa", fontWeight: 700 }}>Orders ({orders.length})</div>
+        <div style={{ padding: 12, background: "#fafafa", fontWeight: 800 }}>Orders ({orders.length})</div>
 
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -302,26 +455,32 @@ const label =
                 <th style={{ padding: 12 }}>Postcode</th>
                 <th style={{ padding: 12 }}>Items</th>
                 <th style={{ padding: 12, textAlign: "right" }}>Subtotal</th>
+                <th style={{ padding: 12 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {orders.map((o) => (
                 <tr key={o.id} style={{ borderBottom: "1px solid #eee" }}>
                   <td style={{ padding: 12, whiteSpace: "nowrap" }}>{formatDateTime(o.createdAt)}</td>
-<td style={{ padding: 12, fontWeight: 800 }}>
-  {o.status === "out-for-delivery"
-    ? "OUT FOR DELIVERY"
-    : o.status.toUpperCase()}
-</td>
                   <td style={{ padding: 12 }}>
-                    <div style={{ fontWeight: 800 }}>{o.customerName}</div>
+                    <StatusBadge status={String(o.status || "")} />
+                  </td>
+                  <td style={{ padding: 12 }}>
+                    <div style={{ fontWeight: 900 }}>{o.customerName}</div>
                     <div style={{ fontSize: 12, opacity: 0.8 }}>{o.customerPhone}</div>
                     {o.customerEmail ? <div style={{ fontSize: 12, opacity: 0.8 }}>{o.customerEmail}</div> : null}
-                    <div style={{ fontSize: 12, opacity: 0.6, marginTop: 6, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        opacity: 0.6,
+                        marginTop: 6,
+                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                      }}
+                    >
                       {o.id}
                     </div>
                   </td>
-                  <td style={{ padding: 12, whiteSpace: "nowrap", fontWeight: 700 }}>{o.postcode}</td>
+                  <td style={{ padding: 12, whiteSpace: "nowrap", fontWeight: 800 }}>{o.postcode}</td>
                   <td style={{ padding: 12 }}>
                     {Array.isArray(o.items) && o.items.length ? (
                       <ul style={{ margin: 0, paddingLeft: 18 }}>
@@ -336,15 +495,24 @@ const label =
                       <span style={{ fontSize: 12, opacity: 0.7 }}>—</span>
                     )}
                   </td>
-                  <td style={{ padding: 12, textAlign: "right", fontWeight: 800 }}>
+                  <td style={{ padding: 12, textAlign: "right", fontWeight: 900 }}>
                     {typeof o.subtotalPence === "number" ? formatGBPFromPence(o.subtotalPence) : "—"}
+                  </td>
+                  <td style={{ padding: 12 }}>
+                    <OrderRowActions
+                      order={o}
+                      authHeader={authHeader}
+                      onLocalStatusChange={(id, next) => {
+                        setOrders((prev) => prev.map((x) => (x.id === id ? { ...x, status: next } : x)));
+                      }}
+                    />
                   </td>
                 </tr>
               ))}
 
               {!loading && orders.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ padding: 16, fontSize: 13, opacity: 0.7 }}>
+                  <td colSpan={7} style={{ padding: 16, fontSize: 13, opacity: 0.7 }}>
                     No orders match your filters (or click “Load orders”).
                   </td>
                 </tr>
