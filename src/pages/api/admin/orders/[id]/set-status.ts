@@ -31,9 +31,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       select: {
         id: true,
         status: true,
-        orderNumber: true,
         customerEmail: true,
         customerName: true,
+        postcode: true,
+        orderNumber: true, // kept for response/UX, not sent to mailer
       },
     });
 
@@ -42,10 +43,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (order.customerEmail) {
       await sendCustomerStatusUpdateEmail({
         to: order.customerEmail,
-        customerName: order.customerName,
-        orderNumber: order.orderNumber ?? order.id,
-        status: order.status,
         orderId: order.id,
+        status: String(order.status),
+        customerName: order.customerName ?? undefined,
+        postcode: order.postcode ?? undefined,
       });
       emailed = true;
     }
