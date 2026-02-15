@@ -55,8 +55,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       `;
 
       const [countOrder] = await prisma.$queryRaw<Array<{ c: bigint }>>`
-        SELECT COUNT(*) AS c FROM \`order\`
-      `;
+  SELECT COUNT(*) AS c FROM verrington_orders.\`order\`
+`;
 
       dbInfo = {
         database: db?.db ?? null,
