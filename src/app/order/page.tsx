@@ -44,9 +44,15 @@ export default function OrderPage() {
   const [customerEmail, setCustomerEmail] = useState("");
   const [postcode, setPostcode] = useState("");
 
-  const [paymentMethod, setPaymentMethod] = useState<
-    "MOLLIE" | "BACS" | "CASH"
-  >("BACS");
+  // Address (manual entry)
+  const [addressLine1, setAddressLine1] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
+  const [town, setTown] = useState("");
+  const [county, setCounty] = useState("");
+
+  const [paymentMethod, setPaymentMethod] = useState<"MOLLIE" | "BACS" | "CASH">(
+    "BACS"
+  );
 
   const [deliveryNotes, setDeliveryNotes] = useState("");
   const [preferredDay, setPreferredDay] = useState(""); // yyyy-mm-dd
@@ -165,6 +171,8 @@ export default function OrderPage() {
     items.length > 0 &&
     customerName.trim().length > 0 &&
     customerPhone.trim().length > 0 &&
+    addressLine1.trim().length > 0 &&
+    town.trim().length > 0 &&
     postcode.trim().length > 0 &&
     !submitting &&
     !loadingProducts &&
@@ -176,6 +184,8 @@ export default function OrderPage() {
     if (items.length === 0) return setError("Please select at least one product.");
     if (!customerName.trim()) return setError("Please enter your name.");
     if (!customerPhone.trim()) return setError("Please enter your phone number.");
+    if (!addressLine1.trim()) return setError("Please enter your address.");
+    if (!town.trim()) return setError("Please enter your town.");
     if (!postcode.trim()) return setError("Please enter your postcode.");
     if (submitting || loadingProducts || productsError) return;
 
@@ -189,6 +199,12 @@ export default function OrderPage() {
           customerName: customerName.trim(),
           customerPhone: customerPhone.trim(),
           customerEmail: customerEmail.trim() || undefined,
+
+          addressLine1: addressLine1.trim() || undefined,
+          addressLine2: addressLine2.trim() || undefined,
+          town: town.trim() || undefined,
+          county: county.trim() || undefined,
+
           postcode: normalisePostcode(postcode),
           preferredDay: preferredDay || undefined,
           deliveryNotes: deliveryNotes.trim() || undefined,
@@ -233,123 +249,57 @@ export default function OrderPage() {
 
   return (
     <main className="min-h-screen bg-[var(--vf-bg)] text-[var(--vf-text)]">
-      {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-[var(--vf-bg)]/70 backdrop-blur">
-        <div className="relative">
-          <div
-            className="relative h-[105px] w-full overflow-hidden bg-cover bg-center sm:h-[125px] md:h-[150px] lg:h-[175px]"
-            style={{ backgroundImage: "url('/log-wall.jpg')" }}
-          >
-            <div className="absolute inset-0 bg-black/35" />
-            <div
-              className="absolute inset-0"
-              style={{
-                background:
-                  "linear-gradient(90deg, rgba(22,16,10,0.55) 0%, rgba(22,16,10,0.12) 60%, rgba(22,16,10,0.45) 100%)",
-              }}
+      {/* Header (match home style) */}
+      <header className="sticky top-0 z-50 border-b border-black/10 bg-[color:var(--vf-bg)]/80 backdrop-blur-md shadow-sm">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-4 sm:px-6 py-3">
+          {/* Brand */}
+          <div className="flex items-center gap-4 min-w-0">
+            <Image
+              src="/logo.png"
+              alt="Verrington Firewood"
+              width={160}
+              height={54}
+              priority
+              className="h-12 w-auto drop-shadow-sm"
             />
-            <div className="absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-black/35 to-transparent" />
-            <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/30 to-transparent" />
-
-            <div className="absolute inset-0">
-              <div className="mx-auto flex h-full max-w-5xl items-center justify-between gap-4 px-6">
-                <Link
-                  href="/"
-                  className="flex items-center gap-4 rounded-3xl px-4 py-3 backdrop-blur-md sm:px-5 sm:py-4"
-                  style={{
-                    background: "rgba(0,0,0,0.35)",
-                    border: "1px solid rgba(255,255,255,0.16)",
-                    boxShadow: "0 18px 45px rgba(0,0,0,0.35)",
-                  }}
-                >
-                  <div
-                    className="rounded-2xl p-2 shadow-sm"
-                    style={{
-                      background: "rgba(255,255,255,0.92)",
-                      border: "1px solid rgba(0,0,0,0.06)",
-                    }}
-                  >
-                    <Image
-                      src="/logo.png"
-                      alt="Verrington Firewood"
-                      width={70}
-                      height={70}
-                      priority
-                    />
-                  </div>
-
-                  <div className="leading-tight">
-                    <div className="text-2xl font-extrabold tracking-tight text-white drop-shadow sm:text-3xl md:text-4xl">
-                      Order Firewood
-                    </div>
-                    <div className="mt-1 text-sm font-semibold text-white/90 drop-shadow sm:text-base md:text-lg">
-                      South Somerset &amp; North Dorset
-                    </div>
-                  </div>
-                </Link>
-
-                <nav
-                  className="hidden items-center gap-2 rounded-3xl px-2 py-2 backdrop-blur-md sm:flex"
-                  style={{
-                    background: "rgba(0,0,0,0.28)",
-                    border: "1px solid rgba(255,255,255,0.14)",
-                    boxShadow: "0 14px 35px rgba(0,0,0,0.25)",
-                  }}
-                  aria-label="Order navigation"
-                >
-                  <Link
-                    href="/prices"
-                    className="rounded-2xl px-4 py-2 text-sm font-semibold text-white/95 hover:bg-white/10"
-                  >
-                    Prices
-                  </Link>
-                  <Link
-                    href="/delivery"
-                    className="rounded-2xl px-4 py-2 text-sm font-semibold text-white/95 hover:bg-white/10"
-                  >
-                    Delivery areas
-                  </Link>
-                  <Link
-                    href="/"
-                    className="rounded-2xl px-4 py-2 text-sm font-semibold text-white/95 hover:bg-white/10"
-                  >
-                    Home
-                  </Link>
-                </nav>
-
-                <div className="absolute right-4 top-3 sm:hidden">
-                  <div
-                    className="flex items-center gap-2 rounded-2xl px-2 py-1 backdrop-blur-md"
-                    style={{
-                      background: "rgba(0,0,0,0.28)",
-                      border: "1px solid rgba(255,255,255,0.14)",
-                    }}
-                  >
-                    <Link
-                      href="/prices"
-                      className="rounded-xl px-2 py-1 text-xs font-semibold text-white/95 hover:bg-white/10"
-                    >
-                      Prices
-                    </Link>
-                    <Link
-                      href="/delivery"
-                      className="rounded-xl px-2 py-1 text-xs font-semibold text-white/95 hover:bg-white/10"
-                    >
-                      Delivery
-                    </Link>
-                    <Link
-                      href="/"
-                      className="rounded-xl px-2 py-1 text-xs font-semibold text-white/95 hover:bg-white/10"
-                    >
-                      Home
-                    </Link>
-                  </div>
-                </div>
+            <div className="min-w-0 leading-tight">
+              <div className="text-lg font-extrabold tracking-tight text-[var(--vf-text)]">
+                Verrington Firewood
+              </div>
+              <div className="text-sm text-[var(--vf-muted)]">
+                South Somerset &amp; North Dorset
               </div>
             </div>
           </div>
 
-          <div className="h-[1px] w-full bg-white/10" />
+          {/* Nav + CTA */}
+          <div className="flex items-center gap-3">
+            <nav className="hidden sm:flex items-center gap-1">
+              <Link
+                href="/prices"
+                className="rounded-full px-3 py-2 text-sm font-semibold text-[var(--vf-text)] hover:bg-black/5 transition-colors"
+              >
+                Prices
+              </Link>
+              <Link
+                href="/delivery"
+                className="rounded-full px-3 py-2 text-sm font-semibold text-[var(--vf-text)] hover:bg-black/5 transition-colors"
+              >
+                Delivery areas
+              </Link>
+            </nav>
+
+            <Link
+              href="/order"
+              className="inline-flex items-center justify-center rounded-2xl px-5 py-2.5 text-sm font-semibold shadow-md hover:shadow-lg transition-all hover:-translate-y-[1px] active:translate-y-0"
+              style={{
+                background: "var(--vf-primary)",
+                color: "var(--vf-primary-contrast)",
+              }}
+            >
+              Order firewood
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -392,10 +342,7 @@ export default function OrderPage() {
                   Tap + / – to choose quantities.
                 </p>
               </div>
-              <Link
-                href="/prices"
-                className="text-sm font-semibold underline underline-offset-4"
-              >
+              <Link href="/prices" className="text-sm font-semibold underline underline-offset-4">
                 View prices
               </Link>
             </div>
@@ -601,6 +548,50 @@ export default function OrderPage() {
             <h2 className="text-lg font-extrabold">Your details</h2>
 
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              {/* Address */}
+              <div className="sm:col-span-2">
+                <label className="text-sm font-semibold">Address line 1</label>
+                <input
+                  value={addressLine1}
+                  onChange={(e) => setAddressLine1(e.target.value)}
+                  autoComplete="address-line1"
+                  placeholder="House number/name and street"
+                  className="mt-1 w-full rounded-2xl border bg-transparent px-4 py-3 outline-none focus:ring-2"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="text-sm font-semibold">Address line 2 (optional)</label>
+                <input
+                  value={addressLine2}
+                  onChange={(e) => setAddressLine2(e.target.value)}
+                  autoComplete="address-line2"
+                  placeholder="Village, area, etc."
+                  className="mt-1 w-full rounded-2xl border bg-transparent px-4 py-3 outline-none focus:ring-2"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold">Town</label>
+                <input
+                  value={town}
+                  onChange={(e) => setTown(e.target.value)}
+                  autoComplete="address-level2"
+                  className="mt-1 w-full rounded-2xl border bg-transparent px-4 py-3 outline-none focus:ring-2"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold">County (optional)</label>
+                <input
+                  value={county}
+                  onChange={(e) => setCounty(e.target.value)}
+                  autoComplete="address-level1"
+                  className="mt-1 w-full rounded-2xl border bg-transparent px-4 py-3 outline-none focus:ring-2"
+                />
+              </div>
+
+              {/* Postcode */}
               <div className="sm:col-span-2">
                 <label className="text-sm font-semibold">Postcode</label>
                 <input
@@ -620,6 +611,7 @@ export default function OrderPage() {
                 )}
               </div>
 
+              {/* Contact */}
               <div className="sm:col-span-2">
                 <label className="text-sm font-semibold">Name</label>
                 <input
@@ -764,8 +756,8 @@ export default function OrderPage() {
               <div className="flex gap-2">
                 <span aria-hidden>③</span>
                 <span>
-                  Pay by your chosen method (Card/Apple Pay, bank transfer, or cash
-                  on delivery).
+                  Pay by your chosen method (Card/Apple Pay, bank transfer, or cash on
+                  delivery).
                 </span>
               </div>
             </div>
@@ -786,8 +778,8 @@ export default function OrderPage() {
             </button>
 
             <p className="mt-2 text-xs text-[var(--vf-muted)]">
-              Delivery fee (if any) and totals are confirmed after submission based on
-              your postcode.
+              Delivery fee (if any) and totals are confirmed after submission based on your
+              postcode.
             </p>
           </div>
         </section>
@@ -802,9 +794,7 @@ export default function OrderPage() {
 
             <div className="mt-4 space-y-2">
               {items.length === 0 ? (
-                <div className="text-sm text-[var(--vf-muted)]">
-                  No items selected yet.
-                </div>
+                <div className="text-sm text-[var(--vf-muted)]">No items selected yet.</div>
               ) : (
                 items.map((i) => (
                   <div
@@ -904,9 +894,7 @@ export default function OrderPage() {
               style={{ background: "var(--vf-surface)" }}
             >
               {items.length === 0 ? (
-                <div className="text-sm text-[var(--vf-muted)]">
-                  No items selected yet.
-                </div>
+                <div className="text-sm text-[var(--vf-muted)]">No items selected yet.</div>
               ) : (
                 <div className="space-y-2">
                   {items.map((i) => (

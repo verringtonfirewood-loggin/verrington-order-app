@@ -97,6 +97,26 @@ function kvRow(label: string, value: string) {
   </tr>`;
 }
 
+function buildAddressLine(args: {
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  town?: string | null;
+  county?: string | null;
+  postcode?: string | null;
+}) {
+  const parts = [
+    args.addressLine1,
+    args.addressLine2,
+    args.town,
+    args.county,
+    args.postcode,
+  ]
+    .map((x) => (typeof x === "string" ? x.trim() : ""))
+    .filter(Boolean);
+
+  return parts.length ? parts.join(", ") : "—";
+}
+
 export async function sendAdminNewOrderEmail(args: {
   orderId: string;
   createdAt?: string;
@@ -104,6 +124,13 @@ export async function sendAdminNewOrderEmail(args: {
   customerPhone?: string;
   customerEmail?: string | null;
   postcode?: string | null;
+
+  // ✅ NEW: Address fields (optional)
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  town?: string | null;
+  county?: string | null;
+
   totalPence?: number | null;
   status?: string | null;
   items: { name: string; quantity: number; pricePence?: number | null }[];
@@ -118,10 +145,24 @@ export async function sendAdminNewOrderEmail(args: {
       ? `£${(args.totalPence / 100).toFixed(2)}`
       : "—";
 
-  const subject = `New order ${args.postcode ? `(${args.postcode}) ` : ""}#${args.orderId.slice(0, 8)}`;
+  const subject = `New order ${args.postcode ? `(${args.postcode}) ` : ""}#${args.orderId.slice(
+    0,
+    8
+  )}`;
+
+  const addressLine = buildAddressLine({
+    addressLine1: args.addressLine1 ?? null,
+    addressLine2: args.addressLine2 ?? null,
+    town: args.town ?? null,
+    county: args.county ?? null,
+    postcode: args.postcode ?? null,
+  });
 
   const linesText = args.items.map((i) => {
-    const unit = typeof i.pricePence === "number" ? ` @ £${(i.pricePence / 100).toFixed(2)}` : "";
+    const unit =
+      typeof i.pricePence === "number"
+        ? ` @ £${(i.pricePence / 100).toFixed(2)}`
+        : "";
     return `- ${i.name} x${i.quantity}${unit}`;
   });
 
@@ -135,7 +176,7 @@ Customer:
 - Name: ${args.customerName || "—"}
 - Phone: ${args.customerPhone || "—"}
 - Email: ${args.customerEmail || "—"}
-- Postcode: ${args.postcode || "—"}
+- Address: ${addressLine}
 
 Items:
 ${linesText.join("\n")}
@@ -150,11 +191,15 @@ ${appUrl}/admin/orders/${args.orderId}
     .map((i) => {
       const unit =
         typeof i.pricePence === "number"
-          ? ` <span style="color:#666;font-weight:400;">@ £${(i.pricePence / 100).toFixed(2)}</span>`
+          ? ` <span style="color:#666;font-weight:400;">@ £${(
+              i.pricePence / 100
+            ).toFixed(2)}</span>`
           : "";
       return `<tr>
         <td style="padding:10px 0;border-top:1px solid #eee;">${esc(i.name)}</td>
-        <td style="padding:10px 0;border-top:1px solid #eee;text-align:right;font-variant-numeric:tabular-nums;">x${esc(i.quantity)}</td>
+        <td style="padding:10px 0;border-top:1px solid #eee;text-align:right;font-variant-numeric:tabular-nums;">x${esc(
+          i.quantity
+        )}</td>
         <td style="padding:10px 0;border-top:1px solid #eee;text-align:right;white-space:nowrap;">${unit}</td>
       </tr>`;
     })
@@ -169,7 +214,7 @@ ${appUrl}/admin/orders/${args.orderId}
         ${kvRow("Customer", args.customerName || "—")}
         ${kvRow("Phone", args.customerPhone || "—")}
         ${kvRow("Email", args.customerEmail || "—")}
-        ${kvRow("Postcode", args.postcode || "—")}
+        ${kvRow("Address", addressLine)}
       </table>
 
       <div style="margin-top:14px;font-weight:800;">Items</div>
@@ -178,7 +223,9 @@ ${appUrl}/admin/orders/${args.orderId}
         <tr>
           <td style="padding:12px 0;border-top:2px solid #111;font-weight:900;">Total</td>
           <td style="padding:12px 0;border-top:2px solid #111;"></td>
-          <td style="padding:12px 0;border-top:2px solid #111;text-align:right;font-weight:900;white-space:nowrap;">${esc(total)}</td>
+          <td style="padding:12px 0;border-top:2px solid #111;text-align:right;font-weight:900;white-space:nowrap;">${esc(
+            total
+          )}</td>
         </tr>
       </table>
 
@@ -205,6 +252,7 @@ ${appUrl}/admin/orders/${args.orderId}
     html,
   });
 }
+
 export async function sendCustomerConfirmationEmail(args: {
   to: string;
   orderId: string;
@@ -309,8 +357,7 @@ export async function sendCustomerStatusUpdateEmail(args: {
     cancelled: "Order cancelled",
   };
 
-  const subject =
-    subjectMap[s] || `Order update (#${args.orderId.slice(0, 8)})`;
+  const subject = subjectMap[s] || `Order update (#${args.orderId.slice(0, 8)})`;
   const headline = headlineMap[s] || "Order update";
 
   const text = `Hi ${args.customerName || "there"},

@@ -1,6 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getPrisma } from "@/lib/prisma";
-import { sendAdminNewOrderEmail, sendCustomerConfirmationEmail } from "@/lib/mailer";
+import {
+  sendAdminNewOrderEmail,
+  sendCustomerConfirmationEmail,
+} from "@/lib/mailer";
 
 function toPositiveInt(input: unknown, fieldName: string): number {
   const n = Number(input);
@@ -66,6 +69,12 @@ function parseCheckoutPaymentMethod(input: unknown): CheckoutPaymentMethod {
   return "BACS";
 }
 
+function cleanOptionalString(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const s = input.trim();
+  return s ? s : null;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     res.setHeader("Allow", ["POST"]);
@@ -79,19 +88,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const body = parseBody(req);
     if (!body) return res.status(400).json({ ok: false, message: "Invalid JSON body" });
 
+    // Core fields
     const postcode = normalizeUKPostcode(body?.postcode ?? "TA1 1AA");
     const checkoutPaymentMethod = parseCheckoutPaymentMethod(body?.checkoutPaymentMethod);
 
-    const preferredDay =
-      typeof body?.preferredDay === "string" && body.preferredDay.trim()
-        ? body.preferredDay.trim()
-        : null;
+    // Optional fields
+    const preferredDay = cleanOptionalString(body?.preferredDay);
+    const deliveryNotes = cleanOptionalString(body?.deliveryNotes);
 
-    const deliveryNotes =
-      typeof body?.deliveryNotes === "string" && body.deliveryNotes.trim()
-        ? body.deliveryNotes.trim()
-        : null;
+    // NEW: Address fields (manual entry)
+    const addressLine1 = cleanOptionalString(body?.addressLine1);
+    const addressLine2 = cleanOptionalString(body?.addressLine2);
+    const town = cleanOptionalString(body?.town);
+    const county = cleanOptionalString(body?.county);
 
+    // Items
     const hasRealItems = Array.isArray(body?.items) && body.items.length > 0;
 
     const rawItems: any[] = hasRealItems
@@ -115,14 +126,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let itemCreates: ItemCreate[] = [];
 
     if (hasRealItems) {
-      const productIds = Array.from(new Set(requested.map(r => r.productId)));
+      const productIds = Array.from(new Set(requested.map((r) => r.productId)));
 
       const dbProducts = await prisma.product.findMany({
         where: { id: { in: productIds }, isActive: true },
         select: { id: true, name: true, pricePence: true },
       });
 
-      const productMap = new Map(dbProducts.map(p => [p.id, p]));
+      const productMap = new Map(dbProducts.map((p) => [p.id, p]));
 
       for (const r of requested) {
         if (!productMap.has(r.productId)) {
@@ -130,7 +141,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       }
 
-      itemCreates = requested.map(r => {
+      itemCreates = requested.map((r) => {
         const p = productMap.get(r.productId)!;
         return {
           productId: p.id,
@@ -156,7 +167,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const paymentStatus = checkoutPaymentMethod === "MOLLIE" ? "PENDING" : "UNPAID";
 
-    // ✅ VF-ORDER-001 generation (transaction safe)
+    // ✅ VF-ORDER-### generation (transaction safe)
     const order = await prisma.$transaction(async (tx) => {
       const counter = await tx.orderCounter.upsert({
         where: { id: 1 },
@@ -192,6 +203,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               ? body.customerEmail.trim()
               : null,
 
+          // NEW address fields (nullable in DB)
+          addressLine1,
+          addressLine2,
+          town,
+          county,
+
           postcode,
           subtotalPence,
           deliveryFeePence,
@@ -208,11 +225,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           paymentStatus,
 
           items: {
-            create: itemCreates.map(i => ({
+            create: itemCreates.map((i) => ({
               productId: i.productId,
               name: i.name,
               pricePence: i.pricePence,
               quantity: i.quantity,
+              lineTotalPence: i.pricePence * i.quantity,
             })),
           },
         },
@@ -220,71 +238,70 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     });
 
-// ✅ Send emails AFTER the transaction succeeds (never inside the transaction)
-try {
-try {
-const adminEmailArgs = {
-  orderId: order.id,
-  createdAt: order.createdAt.toISOString(),
-  customerName: order.customerName,
-  customerPhone: order.customerPhone ?? undefined, // ✅ FIX
-  customerEmail: order.customerEmail ?? null,
-  postcode: order.postcode ?? null,
-  totalPence: order.totalPence ?? null,
-  status: order.status ?? undefined,               // optional, safe
-  items: (order.items ?? []).map((it) => ({
-    name: it.name,
-    quantity: it.quantity,
-    pricePence: it.pricePence ?? null,
-  })),
-};
+    // ✅ Send emails AFTER the transaction succeeds
+    try {
+      const adminEmailArgs = {
+        orderId: order.id,
+        createdAt: order.createdAt.toISOString(),
+        customerName: order.customerName,
+        customerPhone: order.customerPhone ?? undefined,
+        customerEmail: order.customerEmail ?? null,
+        postcode: order.postcode ?? null,
 
-  const tasks: Promise<any>[] = [];
+        // NEW: include address in admin email payload (safe optional)
+        addressLine1: order.addressLine1 ?? null,
+        addressLine2: order.addressLine2 ?? null,
+        town: order.town ?? null,
+        county: order.county ?? null,
 
-  // Admin email (requires ADMIN_NOTIFY_TO env var)
-  tasks.push(sendAdminNewOrderEmail(adminEmailArgs));
+        totalPence: order.totalPence ?? null,
+        status: order.status ?? undefined,
+        items: (order.items ?? []).map((it) => ({
+          name: it.name,
+          quantity: it.quantity,
+          pricePence: it.pricePence ?? null,
+        })),
+      };
 
-  // Customer email (only if enabled + we have an email)
-  if (
-    String(process.env.SEND_CUSTOMER_EMAIL || "false") === "true" &&
-    order.customerEmail
-  ) {
-    const customerEmailArgs = {
-      to: order.customerEmail,
+      const tasks: Promise<any>[] = [];
+
+      // Admin email (requires ADMIN_NOTIFY_TO env var)
+      tasks.push(sendAdminNewOrderEmail(adminEmailArgs as any));
+
+      // Customer email (only if enabled + we have an email)
+      if (String(process.env.SEND_CUSTOMER_EMAIL || "false") === "true" && order.customerEmail) {
+        const customerEmailArgs = {
+          to: order.customerEmail,
+          orderId: order.id,
+          customerName: order.customerName,
+          postcode: order.postcode ?? undefined,
+          totalPence: order.totalPence ?? undefined,
+          items: (order.items ?? []).map((it) => ({
+            name: it.name,
+            quantity: it.quantity,
+          })),
+        };
+
+        tasks.push(sendCustomerConfirmationEmail(customerEmailArgs as any));
+      }
+
+      await Promise.allSettled(tasks);
+    } catch (e) {
+      console.error("[orders] email error:", e);
+    }
+
+    return res.status(201).json({
+      ok: true,
       orderId: order.id,
-      customerName: order.customerName,
-      postcode: order.postcode ?? undefined,
-      totalPence: order.totalPence ?? undefined,
-      items: (order.items ?? []).map((it) => ({
-        name: it.name,
-        quantity: it.quantity,
-      })),
-    };
-
-    tasks.push(sendCustomerConfirmationEmail(customerEmailArgs));
-  }
-
-  await Promise.allSettled(tasks);
-} catch (e) {
-  console.error("[orders] email error:", e);
-}
-} catch (e) {
-  console.error("Email send failed:", e);
-}
-
-return res.status(201).json({
-  ok: true,
-  orderId: order.id,
-  orderNumber: order.orderNumber,
-  createdAt: order.createdAt,
-  subtotalPence,
-  deliveryFeePence,
-  totalPence,
-  checkoutPaymentMethod,
-  paymentStatus,
-});  
-
-} catch (err: any) {
+      orderNumber: order.orderNumber,
+      createdAt: order.createdAt,
+      subtotalPence,
+      deliveryFeePence,
+      totalPence,
+      checkoutPaymentMethod,
+      paymentStatus,
+    });
+  } catch (err: any) {
     console.error("POST /api/orders failed:", err);
     return res.status(400).json({ ok: false, message: err?.message ?? String(err) });
   }

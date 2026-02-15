@@ -39,6 +39,13 @@ model Order {
   customerName  String
   customerPhone String?
   customerEmail String?
+
+  // NEW: manual address fields (optional in DB to avoid breaking existing rows)
+  addressLine1 String?
+  addressLine2 String?
+  town         String?
+  county       String?
+
   postcode      String
   preferredDay  String?
   deliveryNotes String?
@@ -58,7 +65,7 @@ model Order {
   checkoutPaymentMethod CheckoutPaymentMethod @default(BACS)
   paymentStatus         PaymentStatus         @default(UNPAID)
 
-  molliePaymentId   String? @unique
+  molliePaymentId   String?   @unique
   mollieCheckoutUrl String?
   paidAt            DateTime?
 
@@ -74,10 +81,10 @@ model OrderItem {
   orderId   String
   productId String
 
-  name          String
-  pricePence    Int
-  quantity      Int
-  lineTotalPence Int @default(0)
+  name           String
+  pricePence     Int
+  quantity       Int
+  lineTotalPence Int    @default(0)
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 

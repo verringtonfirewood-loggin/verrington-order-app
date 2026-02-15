@@ -153,29 +153,35 @@ export default function ThanksClient() {
   return (
     <main className="min-h-screen bg-[var(--vf-bg)] text-[var(--vf-text)]">
       <div className="mx-auto max-w-5xl px-6 py-10">
-        {/* Branded header */}
-        <header className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <img
-              src="/logo.png"
-              alt="Verrington Firewood"
-              className="h-12 w-12 rounded-2xl object-cover shadow-sm"
-            />
-            <div className="leading-tight">
-              <div className="text-lg font-extrabold tracking-tight">Verrington Firewood</div>
-              <div className="text-sm text-[var(--vf-muted)]">
-                South Somerset &amp; North Dorset
-              </div>
-            </div>
-          </div>
+{/* Branded header */}
+<header className="flex items-center justify-between gap-4 pb-2">
+  <div className="flex items-center gap-3">
+    <img
+      src="/logo.png"
+      alt="Verrington Firewood"
+      className="h-12 w-12 rounded-2xl object-cover shadow-sm ring-1 ring-black/5"
+    />
+    <div className="leading-tight">
+      <div className="text-lg font-extrabold tracking-tight">
+        Verrington Firewood
+      </div>
+      <div className="text-sm text-[var(--vf-muted)]">
+        South Somerset &amp; North Dorset
+      </div>
+    </div>
+  </div>
 
-          <Link
-            href="/order"
-            className="rounded-2xl border px-4 py-2 text-sm font-semibold hover:bg-black/5"
-          >
-            Order again
-          </Link>
-        </header>
+  <Link
+    href="/order"
+    className="inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-semibold shadow-sm hover:shadow-md transition-all hover:-translate-y-[1px] active:translate-y-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+    style={{
+      background: "var(--vf-primary)",
+      color: "var(--vf-primary-contrast)",
+    }}
+  >
+    Order again
+  </Link>
+</header>
 
         {/* Hero / thank you */}
         <section
