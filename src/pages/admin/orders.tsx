@@ -1,6 +1,7 @@
 import type { NextPage } from "next";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import type { AllowedStatus } from "@/lib/orderStatus";
 
 type OrderItem = {
   id: string;
@@ -52,13 +53,21 @@ function base64Utf8(input: string) {
   return window.btoa(binary);
 }
 
-const STATUSES = ["", "NEW", "PAID", "DISPATCHED", "DELIVERED", "CANCELLED"] as const;
+const STATUSES = [
+  "",
+  "pending",
+  "confirmed",
+  "paid",
+  "out-for-delivery",
+  "delivered",
+  "cancelled",
+] as const;
 
 const AdminOrdersPage: NextPage = () => {
   const [user, setUser] = useState("mike");
   const [pass, setPass] = useState("");
 
-  const [status, setStatus] = useState<string>("");
+  const [status, setStatus] = useState<AllowedStatus | "">("");
   const [q, setQ] = useState<string>("");
   const [take, setTake] = useState<number>(50);
 
@@ -190,7 +199,12 @@ const AdminOrdersPage: NextPage = () => {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {STATUSES.map((s) => {
               const active = status === s;
-              const label = s === "" ? "ALL" : s;
+const label =
+  s === ""
+    ? "ALL"
+    : s === "out-for-delivery"
+    ? "OUT FOR DELIVERY"
+    : s.toUpperCase();
               const count = s === "" ? orders.length : (statusCounts[s] ?? 0);
 
               return (
@@ -294,7 +308,11 @@ const AdminOrdersPage: NextPage = () => {
               {orders.map((o) => (
                 <tr key={o.id} style={{ borderBottom: "1px solid #eee" }}>
                   <td style={{ padding: 12, whiteSpace: "nowrap" }}>{formatDateTime(o.createdAt)}</td>
-                  <td style={{ padding: 12, fontWeight: 800 }}>{o.status}</td>
+<td style={{ padding: 12, fontWeight: 800 }}>
+  {o.status === "out-for-delivery"
+    ? "OUT FOR DELIVERY"
+    : o.status.toUpperCase()}
+</td>
                   <td style={{ padding: 12 }}>
                     <div style={{ fontWeight: 800 }}>{o.customerName}</div>
                     <div style={{ fontSize: 12, opacity: 0.8 }}>{o.customerPhone}</div>
