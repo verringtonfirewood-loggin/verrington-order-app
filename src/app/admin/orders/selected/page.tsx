@@ -11,12 +11,15 @@ function formatPence(pence: number) {
 }
 
 function parseIds(ids: unknown): string[] {
-  const str = typeof ids === "string" ? ids : Array.isArray(ids) ? ids[0] : "";
+  const str =
+    typeof ids === "string" ? ids : Array.isArray(ids) ? ids[0] : "";
+
   if (!str) return [];
+
   return str
     .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+    .map((s: string) => s.trim())
+    .filter((s: string) => Boolean(s));
 }
 
 export default async function SelectedOrdersPage({
