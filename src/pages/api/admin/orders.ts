@@ -30,11 +30,7 @@ type AdminOrder = {
 
 function toInt(value: unknown, fallback: number): number {
   const n =
-    typeof value === "string"
-      ? parseInt(value, 10)
-      : typeof value === "number"
-      ? value
-      : NaN;
+    typeof value === "string" ? parseInt(value, 10) : typeof value === "number" ? value : NaN;
   return Number.isFinite(n) ? n : fallback;
 }
 
@@ -47,7 +43,6 @@ function parseIdsParam(input: unknown): string[] {
       : "";
 
   if (!raw) return [];
-  // ids are passed comma-separated, URL encoded in the browser
   return raw
     .split(",")
     .map((s) => s.trim())
@@ -102,7 +97,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const where: any = {};
 
-    // If ids are provided, this is a direct lookup for print/docket (or bulk ops).
     if (ids.length > 0) {
       where.id = { in: ids };
     } else {
@@ -120,21 +114,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       }
     }
 
-    const orders = await prisma.order.findMany({
+    const rows = await prisma.order.findMany({
       where,
       include: { items: true },
       orderBy: { createdAt: "desc" },
       take: ids.length > 0 ? Math.min(ids.length, 200) : take,
     });
 
-    // IMPORTANT for /admin/print?ids=... :
-    // return orders in the same order as the ids list (so the print layout matches selection order).
-    const mapped = orders.map(toAdminOrder);
+    const mapped = rows.map(toAdminOrder);
+
+    // Preserve selection order for /admin/print?ids=...
     const ordered =
       ids.length > 0
-        ? ids
-            .map((id) => mapped.find((o) => o.id === id))
-            .filter(Boolean) as AdminOrder[]
+        ? (ids.map((id) => mapped.find((o) => o.id === id)).filter(Boolean) as AdminOrder[])
         : mapped;
 
     return res.status(200).json({ ok: true, orders: ordered });
@@ -146,4 +138,3 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 }
-d
