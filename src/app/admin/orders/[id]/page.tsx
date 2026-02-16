@@ -1,9 +1,11 @@
 // src/app/admin/orders/[id]/page.tsx
 import Link from "next/link";
-import prisma from "@/lib/prisma";
+import { getPrisma } from "@/lib/prisma";
 import StatusEditor from "./StatusEditor";
 
 export const dynamic = "force-dynamic";
+
+const prisma = getPrisma();
 
 function formatPence(pence: number) {
   return `£${(Number(pence) / 100).toFixed(2)}`;
@@ -39,7 +41,6 @@ export default async function AdminOrderPage({
       <div className="mt-4 flex items-start justify-between gap-6">
         <div>
           <h1 className="text-4xl font-bold">{order.orderNumber ?? order.id}</h1>
-
           <div className="mt-2 text-sm opacity-70">
             Created: {new Date(order.createdAt).toLocaleString()}
           </div>

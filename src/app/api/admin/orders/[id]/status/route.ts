@@ -1,6 +1,7 @@
 // src/app/api/admin/orders/[id]/status/route.ts
 import { NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { getPrisma } from "@/lib/prisma";
+const prisma = getPrisma();
 import { revalidatePath } from "next/cache";
 
 export async function PATCH(

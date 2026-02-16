@@ -1,6 +1,7 @@
 // app/admin/orders/selected/page.tsx
 import Link from "next/link";
-import prisma from "@/lib/prisma";
+import { getPrisma } from "@/lib/prisma";
+const prisma = getPrisma();
 
 export const dynamic = "force-dynamic";
 
