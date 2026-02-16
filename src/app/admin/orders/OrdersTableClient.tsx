@@ -3,9 +3,36 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import PaymentPill from "@/components/PaymentPill";
 
 function formatPence(pence: number) {
   return `£${(Number(pence) / 100).toFixed(2)}`;
+}
+
+function rowTint(paymentStatus?: string) {
+  const s = String(paymentStatus || "").toUpperCase();
+
+  if (s === "PAID") return "bg-emerald-50";
+  if (s === "PENDING") return "bg-amber-50";
+  if (s === "FAILED") return "bg-red-50";
+  if (s === "EXPIRED") return "bg-orange-50";
+  if (s === "CANCELED") return "bg-zinc-50";
+
+  // UNPAID / unknown
+  return "bg-slate-50";
+}
+
+function rowBorder(paymentStatus?: string) {
+  const s = String(paymentStatus || "").toUpperCase();
+
+  if (s === "PAID") return "border-l-4 border-emerald-400";
+  if (s === "PENDING") return "border-l-4 border-amber-400";
+  if (s === "FAILED") return "border-l-4 border-red-400";
+  if (s === "EXPIRED") return "border-l-4 border-orange-400";
+  if (s === "CANCELED") return "border-l-4 border-zinc-400";
+
+  // UNPAID / unknown
+  return "border-l-4 border-slate-300";
 }
 
 export default function OrdersTableClient({ orders }: { orders: any[] }) {
@@ -39,7 +66,6 @@ export default function OrdersTableClient({ orders }: { orders: any[] }) {
           Clear selection
         </button>
 
-        {/* ✅ Single (non-duplicate) View selected button */}
         <Link
           href={`/admin/orders/selected?ids=${encodeURIComponent(idsParam)}`}
           className={`rounded-lg px-3 py-1 ${
@@ -51,7 +77,6 @@ export default function OrdersTableClient({ orders }: { orders: any[] }) {
           View selected ({selectedCount})
         </Link>
 
-        {/* Print selected (this prints the current page UI, not a custom print view) */}
         <button
           className={`rounded-lg px-3 py-1 ${
             selectedCount
@@ -71,6 +96,7 @@ export default function OrdersTableClient({ orders }: { orders: any[] }) {
               <th className="w-10 p-3"></th>
               <th className="p-3">Created</th>
               <th className="p-3">Status</th>
+              <th className="p-3">Payment</th>
               <th className="p-3">Customer</th>
               <th className="p-3">Postcode</th>
               <th className="p-3">Items</th>
@@ -81,10 +107,15 @@ export default function OrdersTableClient({ orders }: { orders: any[] }) {
 
           <tbody>
             {orders.map((o) => {
-              const total = formatPence(o.totalPence); // ✅ correct field per schema
+              const total = formatPence(o.totalPence);
+              const tint = rowTint(o.paymentStatus);
+              const border = rowBorder(o.paymentStatus);
 
               return (
-                <tr key={o.id} className="border-t">
+                <tr
+                  key={o.id}
+                  className={`border-t ${tint} ${border}`}
+                >
                   <td className="p-3">
                     <input
                       type="checkbox"
@@ -96,9 +127,16 @@ export default function OrdersTableClient({ orders }: { orders: any[] }) {
                   <td className="p-3">{new Date(o.createdAt).toLocaleString()}</td>
 
                   <td className="p-3">
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-sm">
+                    <span className="rounded-full bg-white/70 px-3 py-1 text-sm">
                       {o.status}
                     </span>
+                  </td>
+
+                  <td className="p-3">
+                    <PaymentPill
+                      method={o.checkoutPaymentMethod as any}
+                      status={o.paymentStatus as any}
+                    />
                   </td>
 
                   <td className="p-3">

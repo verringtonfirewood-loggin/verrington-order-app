@@ -1,36 +1,42 @@
 // src/app/admin/orders/page.tsx
+import Link from "next/link";
 import { getPrisma } from "@/lib/prisma";
 import OrdersTableClient from "./OrdersTableClient";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const prisma = getPrisma();
+
 export default async function AdminOrdersPage() {
-  try {
-    const prisma = getPrisma();
+  const orders = await prisma.order.findMany({
+    orderBy: { createdAt: "desc" },
+    include: { items: true },
+  });
 
-    const orders = await prisma.order.findMany({
-      orderBy: { createdAt: "desc" },
-      include: { items: true },
-    });
+  return (
+    <div className="p-6">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Link
+            href="/admin"
+            className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50"
+          >
+            ← Admin home
+          </Link>
 
-    return (
-      <div className="p-6">
-        <h1 className="text-3xl font-semibold">Orders ({orders.length})</h1>
-        <div className="mt-6">
-          <OrdersTableClient orders={orders as any} />
+          <Link
+            href="/admin/dispatch"
+            className="rounded-lg border px-3 py-1 text-sm hover:bg-slate-50"
+          >
+            ← Back to dispatch
+          </Link>
         </div>
+
+        <h1 className="text-3xl font-semibold">Orders ({orders.length})</h1>
       </div>
-    );
-  } catch (err) {
-    console.error("AdminOrdersPage error:", err);
-    return (
-      <div className="p-6">
-        <h1 className="text-3xl font-semibold">Orders</h1>
-        <p className="mt-3 text-red-600">
-          Server error loading orders. Check Vercel logs.
-        </p>
-      </div>
-    );
-  }
+
+      <OrdersTableClient orders={orders as any} />
+    </div>
+  );
 }
