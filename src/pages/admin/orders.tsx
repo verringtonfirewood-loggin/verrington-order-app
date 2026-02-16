@@ -1,345 +1,412 @@
 import type { NextPage } from "next";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { adminFetch, clearAdminCreds, loadAdminCreds, saveAdminCreds } from "@/lib/adminClientAuth";
 
 type OrderItem = {
   id: string;
-  productId: string;
-  name?: string | null;
+  productId: string | null;
+  name: string;
   quantity: number;
   pricePence: number;
 };
 
-type Order = {
+type OrderRow = {
   id: string;
   createdAt: string;
   status: string;
   customerName: string;
   customerPhone: string;
-  customerEmail?: string | null;
+  customerEmail: string;
   postcode: string;
-  subtotalPence?: number | null;
-  totalPence?: number | null;
-  deliveryFeePence?: number | null;
-  items?: OrderItem[];
-  orderNumber?: string | null;
+  totalPence: number;
+  subtotalPence?: number;
+  deliveryFeePence?: number;
+  orderNumber: string | null;
+  items: OrderItem[];
 };
 
-function formatGBPFromPence(pence: number) {
-  const gbp = (pence || 0) / 100;
-  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(gbp);
+type OrdersResp = { ok: true; orders: OrderRow[] } | { ok: false; error: string };
+
+function gbp(pence: number) {
+  return `£${(Number(pence || 0) / 100).toFixed(2)}`;
 }
 
-function formatDateTime(iso: string) {
-  try {
-    return new Date(iso).toLocaleString("en-GB", {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
+function fmtDate(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("en-GB", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-function base64Utf8(input: string) {
-  if (typeof window === "undefined") return "";
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return window.btoa(binary);
-}
+export default function OrdersPage() {
+  const [username, setUsername] = useState("mike");
+  const [password, setPassword] = useState("");
+  const [rememberSession, setRememberSession] = useState(true);
 
-// must match lib/orderStatus.ts
-const STATUSES = ["", "pending", "confirmed", "paid", "out-for-delivery", "delivered", "cancelled"] as const;
-
-const AdminOrdersPage: NextPage = () => {
-  const [user, setUser] = useState("mike");
-  const [pass, setPass] = useState("");
-
-  const [status, setStatus] = useState<string>("");
-  const [q, setQ] = useState<string>("");
-  const [take, setTake] = useState<number>(50);
+  const [status, setStatus] = useState<string>(""); // empty = all
+  const [q, setQ] = useState("");
+  const [take, setTake] = useState(50);
 
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [orders, setOrders] = useState<OrderRow[]>([]);
 
-  const authHeader = useMemo(() => {
-    const pair = `${user}:${pass}`;
-    const b64 = base64Utf8(pair);
-    return `Basic ${b64}`;
-  }, [user, pass]);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
 
-  const url = useMemo(() => {
-    const params = new URLSearchParams();
-    if (status) params.set("status", status);
-    if (q.trim()) params.set("q", q.trim());
-    if (take) params.set("take", String(take));
-    const s = params.toString();
-    return `/api/admin/orders${s ? `?${s}` : ""}`;
-  }, [status, q, take]);
+  const selectedIds = useMemo(
+    () => Object.entries(selected).filter(([, v]) => v).map(([id]) => id),
+    [selected]
+  );
 
-  async function load() {
-    if (!pass) {
-      setErr("Enter the admin password, then click Load orders.");
+  const allVisibleSelected = useMemo(() => {
+    if (!orders.length) return false;
+    return orders.every((o) => selected[o.id]);
+  }, [orders, selected]);
+
+  useEffect(() => {
+    const stored = loadAdminCreds();
+    if (stored) {
+      setUsername(stored.username);
+      setPassword(stored.password);
+      // auto-load once when creds exist
+      void loadOrders(stored.username, stored.password, { silent: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function loadOrders(u = username, p = password, opts?: { silent?: boolean }) {
+    if (!u || !p) {
+      setError("Enter username and password, then click Load orders.");
       return;
     }
 
+    if (rememberSession) saveAdminCreds({ username: u, password: p });
+
+    const params = new URLSearchParams();
+    params.set("take", String(take));
+    if (q.trim()) params.set("q", q.trim());
+    if (status) params.set("status", status);
+
     setLoading(true);
-    setErr(null);
+    if (!opts?.silent) setError(null);
 
     try {
-      const res = await fetch(url, {
+      const data = await adminFetch<OrdersResp>(`/api/admin/orders?${params.toString()}`, {
         method: "GET",
-        headers: { Authorization: authHeader },
+        username: u,
+        password: p,
       });
 
-      const text = await res.text();
-      let data: any = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        data = { ok: false, error: text?.slice(0, 200) || `HTTP ${res.status}` };
-      }
+      if (!("ok" in data) || data.ok !== true) throw new Error((data as any)?.error || "Failed");
 
-      if (!res.ok || !data?.ok) throw new Error(data?.error ?? `Failed to load orders (HTTP ${res.status})`);
-
-      const list: Order[] = Array.isArray(data.orders) ? data.orders : [];
-      setOrders(list);
+      setOrders(data.orders || []);
+      // keep selections for still-visible ids
+      setSelected((prev) => {
+        const next: Record<string, boolean> = {};
+        for (const o of data.orders || []) next[o.id] = Boolean(prev[o.id]);
+        return next;
+      });
     } catch (e: any) {
       setOrders([]);
-      setErr(e?.message ?? "Failed to load orders");
+      setSelected({});
+      setError(e?.message ? String(e.message) : "Failed to load orders");
     } finally {
       setLoading(false);
     }
   }
 
-  const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const o of orders) counts[o.status] = (counts[o.status] ?? 0) + 1;
-    return counts;
-  }, [orders]);
+  function toggleOne(id: string) {
+    setSelected((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
+  function toggleAllVisible() {
+    setSelected((prev) => {
+      const next = { ...prev };
+      const newVal = !allVisibleSelected;
+      for (const o of orders) next[o.id] = newVal;
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelected({});
+  }
+
+  function logoutSession() {
+    clearAdminCreds();
+    setPassword("");
+  }
+
+  const printHref =
+    selectedIds.length > 0
+      ? `/admin/print?ids=${encodeURIComponent(selectedIds.join(","))}`
+      : "";
 
   return (
-    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
-      <header style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <h1 style={{ margin: 0, fontSize: 24 }}>Admin • Orders</h1>
-
-        <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <Link href="/admin" style={{ textDecoration: "none", opacity: 0.85 }}>
-            ← Admin Home
-          </Link>
-
+    <div style={{ padding: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
+        <h1 style={{ margin: 0 }}>Admin · Orders</h1>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <Link href="/admin">← Admin Home</Link>
           <button
-            type="button"
-            onClick={load}
+            onClick={() => loadOrders()}
             disabled={loading}
             style={{
-              padding: "10px 12px",
+              padding: "8px 12px",
               borderRadius: 10,
               border: "1px solid #111",
-              background: loading ? "#999" : "#111",
-              color: "white",
+              background: "#111",
+              color: "#fff",
               cursor: loading ? "not-allowed" : "pointer",
-              fontWeight: 700,
             }}
           >
             {loading ? "Loading…" : "Load orders"}
           </button>
         </div>
-      </header>
+      </div>
 
-      <section style={{ marginTop: 14, border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ padding: 12, background: "#fafafa", fontWeight: 700 }}>Basic Auth</div>
-        <div style={{ padding: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <label style={{ display: "grid", gap: 6 }}>
+      <div style={{ marginTop: 16, border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Basic Auth</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 12, alignItems: "center" }}>
+          <div>
             <div style={{ fontSize: 12, opacity: 0.75 }}>Username</div>
-            <input value={user} onChange={(e) => setUser(e.target.value)} style={inp} />
-          </label>
-
-          <label style={{ display: "grid", gap: 6 }}>
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              style={{ width: "100%", padding: 8, borderRadius: 10, border: "1px solid #ddd" }}
+            />
+          </div>
+          <div>
             <div style={{ fontSize: 12, opacity: 0.75 }}>Password</div>
             <input
-              value={pass}
-              onChange={(e) => setPass(e.target.value)}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               type="password"
-              style={inp}
-              placeholder="Enter admin password, then click Load orders"
+              style={{ width: "100%", padding: 8, borderRadius: 10, border: "1px solid #ddd" }}
             />
-          </label>
-
-          <div style={{ gridColumn: "1 / -1", fontSize: 12, opacity: 0.7 }}>
-            Calls <code>/api/admin/orders</code> with Basic Auth. Password is not stored.
-          </div>
-        </div>
-      </section>
-
-      <section style={{ marginTop: 14, border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ padding: 12, background: "#fafafa", fontWeight: 700 }}>Filters</div>
-
-        <div style={{ padding: 12, display: "grid", gap: 12 }}>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {STATUSES.map((s) => {
-              const active = status === s;
-              const label = s === "" ? "ALL" : String(s).toUpperCase();
-              const count = s === "" ? orders.length : statusCounts[s] ?? 0;
-
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setStatus(s)}
-                  style={{
-                    padding: "8px 10px",
-                    borderRadius: 999,
-                    border: "1px solid #ddd",
-                    background: active ? "#111" : "white",
-                    color: active ? "white" : "#111",
-                    cursor: "pointer",
-                    fontWeight: 800,
-                    fontSize: 12,
-                  }}
-                >
-                  {label} <span style={{ opacity: active ? 0.9 : 0.6, fontWeight: 700 }}>({count})</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 180px", gap: 12 }}>
-            <label style={{ display: "grid", gap: 6 }}>
-              <div style={{ fontSize: 12, opacity: 0.75 }}>Search</div>
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="postcode, name, phone, email, order id, order number"
-                style={inp}
-              />
-            </label>
-
-            <label style={{ display: "grid", gap: 6 }}>
-              <div style={{ fontSize: 12, opacity: 0.75 }}>Limit</div>
-              <select value={take} onChange={(e) => setTake(Number(e.target.value))} style={inp}>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-                <option value={200}>200</option>
-              </select>
-            </label>
-          </div>
-
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={() => {
-                setStatus("");
-                setQ("");
-                setTake(50);
-              }}
-              style={{
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1px solid #ddd",
-                background: "white",
-                cursor: "pointer",
-                fontWeight: 700,
-              }}
-            >
-              Clear
-            </button>
-
-            <Link href="/admin/dispatch" style={{ alignSelf: "center", textDecoration: "none", fontWeight: 800 }}>
-              Go to Dispatch →
-            </Link>
-
-            <div style={{ fontSize: 12, opacity: 0.7, alignSelf: "center" }}>
-              API: <code>{url}</code>
+            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>
+              <label style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+                <input
+                  type="checkbox"
+                  checked={rememberSession}
+                  onChange={(e) => setRememberSession(e.target.checked)}
+                />
+                Remember for this tab session
+              </label>
             </div>
           </div>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button
+              onClick={logoutSession}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 10,
+                border: "1px solid #ddd",
+                background: "#fff",
+              }}
+            >
+              Clear saved
+            </button>
+          </div>
         </div>
-      </section>
+      </div>
 
-      {err ? (
-        <div style={{ marginTop: 14, padding: 12, border: "1px solid #f3c2c2", borderRadius: 12, background: "#fff5f5" }}>
-          <div style={{ fontWeight: 800, color: "crimson" }}>Fix needed</div>
-          <div style={{ marginTop: 6 }}>{err}</div>
+      <div style={{ marginTop: 16, border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Filters</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 200px 140px", gap: 12, alignItems: "end" }}>
+          <div>
+            <div style={{ fontSize: 12, opacity: 0.75 }}>Search</div>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="postcode, name, phone, email, order id, order number"
+              style={{ width: "100%", padding: 8, borderRadius: 10, border: "1px solid #ddd" }}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 12, opacity: 0.75 }}>Status</div>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              style={{ width: "100%", padding: 8, borderRadius: 10, border: "1px solid #ddd" }}
+            >
+              <option value="">ALL</option>
+              <option value="NEW">NEW</option>
+              <option value="PENDING">PENDING</option>
+              <option value="CONFIRMED">CONFIRMED</option>
+              <option value="PAID">PAID</option>
+              <option value="OUT-FOR-DELIVERY">OUT-FOR-DELIVERY</option>
+              <option value="DELIVERED">DELIVERED</option>
+              <option value="CANCELLED">CANCELLED</option>
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 12, opacity: 0.75 }}>Limit</div>
+            <select
+              value={take}
+              onChange={(e) => setTake(parseInt(e.target.value, 10))}
+              style={{ width: "100%", padding: 8, borderRadius: 10, border: "1px solid #ddd" }}
+            >
+              {[25, 50, 100, 200].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-      ) : null}
 
-      <section style={{ marginTop: 14, border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ padding: 12, background: "#fafafa", fontWeight: 700 }}>Orders ({orders.length})</div>
+        <div style={{ display: "flex", gap: 10, marginTop: 12, alignItems: "center" }}>
+          <button
+            onClick={() => loadOrders()}
+            disabled={loading}
+            style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "#111", color: "#fff" }}
+          >
+            Apply
+          </button>
+          <button
+            onClick={() => {
+              setQ("");
+              setStatus("");
+              setTake(50);
+              clearSelection();
+            }}
+            style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #ddd", background: "#fff" }}
+          >
+            Clear
+          </button>
 
-        <div style={{ overflowX: "auto" }}>
+          <div style={{ flex: 1 }} />
+
+          <Link href="/admin/dispatch">Go to Dispatch →</Link>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        {error && (
+          <div style={{ padding: 12, borderRadius: 10, border: "1px solid #f0c", background: "#fff5fb" }}>
+            <strong>Error:</strong> {error}
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 16, border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div style={{ fontWeight: 700 }}>Orders ({orders.length})</div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <button
+              onClick={toggleAllVisible}
+              disabled={!orders.length}
+              style={{ padding: "6px 10px", borderRadius: 10, border: "1px solid #ddd", background: "#fff" }}
+            >
+              {allVisibleSelected ? "Unselect all" : "Select all"}
+            </button>
+            <button
+              onClick={clearSelection}
+              disabled={!selectedIds.length}
+              style={{ padding: "6px 10px", borderRadius: 10, border: "1px solid #ddd", background: "#fff" }}
+            >
+              Clear selection
+            </button>
+
+            {selectedIds.length ? (
+              <Link
+                href={printHref}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 10,
+                  border: "1px solid #111",
+                  background: "#111",
+                  color: "#fff",
+                  textDecoration: "none",
+                }}
+              >
+                Print selected ({selectedIds.length})
+              </Link>
+            ) : (
+              <span style={{ fontSize: 12, opacity: 0.7 }}>Select orders to enable printing</span>
+            )}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 12, border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ textAlign: "left", borderBottom: "1px solid #eee" }}>
-                <th style={{ padding: 12 }}>Created</th>
-                <th style={{ padding: 12 }}>Status</th>
-                <th style={{ padding: 12 }}>Customer</th>
-                <th style={{ padding: 12 }}>Postcode</th>
-                <th style={{ padding: 12 }}>Items</th>
-                <th style={{ padding: 12, textAlign: "right" }}>Total</th>
-                <th style={{ padding: 12 }} />
+              <tr style={{ background: "#fafafa" }}>
+                <th style={{ width: 44, padding: 10, textAlign: "center" }}>
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected && orders.length > 0}
+                    onChange={toggleAllVisible}
+                    aria-label="Select all"
+                  />
+                </th>
+                <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Created</th>
+                <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Status</th>
+                <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Customer</th>
+                <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Postcode</th>
+                <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Items</th>
+                <th style={{ padding: 10, textAlign: "right", fontSize: 12, opacity: 0.8 }}>Total</th>
+                <th style={{ padding: 10, textAlign: "right", fontSize: 12, opacity: 0.8 }} />
               </tr>
             </thead>
             <tbody>
               {orders.map((o) => (
-                <tr key={o.id} style={{ borderBottom: "1px solid #eee" }}>
-                  <td style={{ padding: 12, whiteSpace: "nowrap" }}>{formatDateTime(o.createdAt)}</td>
-                  <td style={{ padding: 12, fontWeight: 900 }}>{String(o.status).toUpperCase()}</td>
-                  <td style={{ padding: 12 }}>
-                    <div style={{ fontWeight: 800 }}>{o.customerName}</div>
-                    <div style={{ fontSize: 12, opacity: 0.8 }}>{o.customerPhone}</div>
-                    {o.customerEmail ? <div style={{ fontSize: 12, opacity: 0.8 }}>{o.customerEmail}</div> : null}
-                    <div style={{ fontSize: 12, opacity: 0.6, marginTop: 6, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
-                      {o.orderNumber ? `${o.orderNumber} • ` : ""}
-                      {o.id}
-                    </div>
+                <tr key={o.id} style={{ borderTop: "1px solid #eee" }}>
+                  <td style={{ padding: 10, textAlign: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selected[o.id])}
+                      onChange={() => toggleOne(o.id)}
+                      aria-label={`Select order ${o.id}`}
+                    />
                   </td>
-                  <td style={{ padding: 12, whiteSpace: "nowrap", fontWeight: 800 }}>{o.postcode}</td>
-                  <td style={{ padding: 12 }}>
-                    {Array.isArray(o.items) && o.items.length ? (
-                      <ul style={{ margin: 0, paddingLeft: 18 }}>
-                        {o.items.slice(0, 4).map((it) => (
-                          <li key={it.id} style={{ fontSize: 12, opacity: 0.9 }}>
-                            {it.quantity} × {it.name ?? it.productId}
-                          </li>
-                        ))}
-                        {o.items.length > 4 ? <li style={{ fontSize: 12, opacity: 0.7 }}>+{o.items.length - 4} more…</li> : null}
-                      </ul>
-                    ) : (
-                      <span style={{ fontSize: 12, opacity: 0.7 }}>—</span>
-                    )}
+
+                  <td style={{ padding: 10 }}>{fmtDate(o.createdAt)}</td>
+                  <td style={{ padding: 10, fontWeight: 700 }}>{String(o.status || "").toUpperCase()}</td>
+                  <td style={{ padding: 10 }}>
+                    <div style={{ fontWeight: 700 }}>{o.customerName || "-"}</div>
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>{o.customerEmail || ""}</div>
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>{o.customerPhone || ""}</div>
+                    <div style={{ fontSize: 12, opacity: 0.6 }}>{o.orderNumber || o.id}</div>
                   </td>
-                  <td style={{ padding: 12, textAlign: "right", fontWeight: 900 }}>
-                    {typeof o.totalPence === "number" ? formatGBPFromPence(o.totalPence) : "—"}
+                  <td style={{ padding: 10, fontWeight: 700 }}>{o.postcode || "-"}</td>
+                  <td style={{ padding: 10, fontSize: 13 }}>
+                    {(o.items || []).slice(0, 2).map((it) => (
+                      <div key={it.id}>
+                        • {it.quantity} × {it.name}
+                      </div>
+                    ))}
+                    {(o.items || []).length > 2 && <div>…</div>}
                   </td>
-                  <td style={{ padding: 12 }}>
-                    <Link href={`/admin/orders/${encodeURIComponent(o.id)}`} style={{ fontWeight: 900, textDecoration: "none" }}>
-                      View →
-                    </Link>
+                  <td style={{ padding: 10, textAlign: "right", fontWeight: 800 }}>{gbp(o.totalPence)}</td>
+                  <td style={{ padding: 10, textAlign: "right" }}>
+                    <Link href={`/admin/orders/${o.id}`}>View →</Link>
                   </td>
                 </tr>
               ))}
 
-              {!loading && orders.length === 0 ? (
+              {!orders.length && (
                 <tr>
-                  <td colSpan={7} style={{ padding: 16, fontSize: 13, opacity: 0.7 }}>
-                    No orders match your filters (or click “Load orders”).
+                  <td colSpan={8} style={{ padding: 16, textAlign: "center", opacity: 0.7 }}>
+                    No orders loaded yet — enter credentials and click “Load orders”.
                   </td>
                 </tr>
-              ) : null}
+              )}
             </tbody>
           </table>
         </div>
-      </section>
-    </main>
+      </div>
+
+      <div style={{ marginTop: 18, fontSize: 12, opacity: 0.65 }}>
+        Tip: with “Remember for this tab session” enabled, you only type the password once.
+      </div>
+    </div>
   );
-};
-
-const inp: React.CSSProperties = { width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd" };
-
-export default AdminOrdersPage;
+}

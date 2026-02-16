@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { NextPage } from "next";
 import Link from "next/link";
 import { useRouter } from "next/router";
+import { adminFetch, loadAdminCreds, saveAdminCreds } from "@/lib/adminClientAuth";
 
 type AdminOrderItem = {
   id: string;
@@ -13,7 +14,7 @@ type AdminOrderItem = {
 
 type AdminOrder = {
   id: string;
-  createdAt: string; // ISO string
+  createdAt: string;
   status: string;
   customerName: string;
   customerPhone: string;
@@ -27,8 +28,7 @@ type AdminOrder = {
 };
 
 function formatGBPFromPence(pence: number): string {
-  const pounds = (Number(pence || 0) / 100).toFixed(2);
-  return `£${pounds}`;
+  return `£${(Number(pence || 0) / 100).toFixed(2)}`;
 }
 
 function safeDate(iso: string): string {
@@ -43,10 +43,8 @@ function safeDate(iso: string): string {
   });
 }
 
-function basicAuthHeader(username: string, password: string): string {
-  // btoa expects latin1; credentials here are simple, so fine.
-  const token = typeof window !== "undefined" ? window.btoa(`${username}:${password}`) : "";
-  return `Basic ${token}`;
+function normStatus(s: string) {
+  return String(s || "").trim().toUpperCase().replace(/_/g, "-");
 }
 
 const PrintPage: NextPage = () => {
@@ -55,7 +53,11 @@ const PrintPage: NextPage = () => {
   const ids = useMemo(() => {
     const raw = router.query.ids;
     const s =
-      typeof raw === "string" ? raw : Array.isArray(raw) && typeof raw[0] === "string" ? raw[0] : "";
+      typeof raw === "string"
+        ? raw
+        : Array.isArray(raw) && typeof raw[0] === "string"
+        ? raw[0]
+        : "";
     return s
       .split(",")
       .map((x) => x.trim())
@@ -68,7 +70,17 @@ const PrintPage: NextPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [orders, setOrders] = useState<AdminOrder[]>([]);
 
-  async function load() {
+  useEffect(() => {
+    const stored = loadAdminCreds();
+    if (stored) {
+      setUsername(stored.username);
+      setPassword(stored.password);
+      if (ids.length) void load(stored.username, stored.password, { silent: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ids.length]);
+
+  async function load(u = username, p = password, opts?: { silent?: boolean }) {
     setError(null);
 
     if (!ids.length) {
@@ -76,34 +88,25 @@ const PrintPage: NextPage = () => {
       setError("No order ids provided in the URL (expected ?ids=id1,id2,...)");
       return;
     }
-
-    if (!username || !password) {
-      setError("Enter username and password, then click Load.");
+    if (!u || !p) {
+      setError("Enter username + password, then click Load.");
       return;
     }
 
+    saveAdminCreds({ username: u, password: p });
+
     setLoading(true);
+    if (!opts?.silent) setError(null);
+
     try {
       const qs = encodeURIComponent(ids.join(","));
-      const res = await fetch(`/api/admin/orders?ids=${qs}`, {
+      const data = await adminFetch<{ ok: true; orders: AdminOrder[] }>(`/api/admin/orders?ids=${qs}`, {
         method: "GET",
-        headers: {
-          Authorization: basicAuthHeader(username, password),
-        },
+        username: u,
+        password: p,
       });
 
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        const msg = data?.error ? String(data.error) : `Request failed (${res.status})`;
-        throw new Error(msg);
-      }
-
-      if (!data || data.ok !== true || !Array.isArray(data.orders)) {
-        throw new Error("Unexpected API response shape from /api/admin/orders");
-      }
-
-      setOrders(data.orders as AdminOrder[]);
+      setOrders(Array.isArray(data.orders) ? data.orders : []);
     } catch (e: any) {
       setOrders([]);
       setError(e?.message ? String(e.message) : "Failed to load orders");
@@ -118,9 +121,10 @@ const PrintPage: NextPage = () => {
 
   return (
     <div style={{ padding: 24 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
+      <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
         <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
           <Link href="/admin/dispatch">← Back to Dispatch</Link>
+          <Link href="/admin/orders">Orders</Link>
         </div>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -128,17 +132,17 @@ const PrintPage: NextPage = () => {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="username"
-            style={{ padding: 8, borderRadius: 8, border: "1px solid #ddd", width: 180 }}
+            style={{ padding: 8, borderRadius: 10, border: "1px solid #ddd", width: 160 }}
           />
           <input
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="password"
             type="password"
-            style={{ padding: 8, borderRadius: 8, border: "1px solid #ddd", width: 180 }}
+            style={{ padding: 8, borderRadius: 10, border: "1px solid #ddd", width: 160 }}
           />
           <button
-            onClick={load}
+            onClick={() => load()}
             disabled={loading}
             style={{
               padding: "8px 14px",
@@ -159,7 +163,6 @@ const PrintPage: NextPage = () => {
               borderRadius: 10,
               border: "1px solid #ddd",
               background: orders.length ? "#fff" : "#f5f5f5",
-              color: "#111",
               cursor: orders.length ? "pointer" : "not-allowed",
             }}
           >
@@ -169,78 +172,61 @@ const PrintPage: NextPage = () => {
       </div>
 
       {error && (
-        <div style={{ marginTop: 16, padding: 12, borderRadius: 10, border: "1px solid #f0c", background: "#fff5fb" }}>
+        <div className="no-print" style={{ marginTop: 16, padding: 12, borderRadius: 10, border: "1px solid #f0c", background: "#fff5fb" }}>
           <strong>Print load error:</strong> {error}
         </div>
       )}
 
-      {/* Helpful hint so it never looks “blank” */}
       {!error && !orders.length && (
-        <div style={{ marginTop: 24, opacity: 0.8 }}>
-          <div style={{ fontSize: 14 }}>
-            Ready to print {ids.length ? `${ids.length} order(s)` : "orders"}.
-          </div>
-          <div style={{ fontSize: 13, marginTop: 6 }}>
-            Click <strong>Load</strong> to fetch the orders.
-          </div>
+        <div className="no-print" style={{ marginTop: 24, opacity: 0.8 }}>
+          Click <strong>Load</strong> to fetch {ids.length ? `${ids.length} order(s)` : "orders"}.
         </div>
       )}
 
-      <div style={{ marginTop: 24 }}>
-        {orders.map((o, idx) => {
+      <div style={{ marginTop: 20 }}>
+        {orders.map((o) => {
           const itemsSumPence = (o.items || []).reduce(
             (sum, it) => sum + Number(it.pricePence || 0) * Number(it.quantity || 0),
             0
           );
 
           return (
-            <div
-              key={o.id}
-              style={{
-                border: "1px solid #ddd",
-                borderRadius: 14,
-                padding: 18,
-                marginBottom: 18,
-                breakInside: "avoid",
-              }}
-            >
+            <div key={o.id} className="sheet">
               <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
                 <div>
-                  <div style={{ fontSize: 18, fontWeight: 700 }}>
-                    Delivery Docket {o.orderNumber ? `— ${o.orderNumber}` : ""}
+                  <div style={{ fontSize: 18, fontWeight: 800 }}>Verrington Firewood — Delivery Docket</div>
+                  <div style={{ fontSize: 12, marginTop: 4, opacity: 0.8 }}>
+                    {o.orderNumber ? `Order: ${o.orderNumber}` : `Order ID: ${o.id}`}
                   </div>
-                  <div style={{ fontSize: 12, marginTop: 4, opacity: 0.75 }}>
-                    Order ID: {o.id}
-                  </div>
-                  <div style={{ fontSize: 12, marginTop: 2, opacity: 0.75 }}>
-                    Created: {safeDate(o.createdAt)} • Status: {String(o.status || "").toUpperCase()}
+                  <div style={{ fontSize: 12, marginTop: 2, opacity: 0.8 }}>
+                    Created: {safeDate(o.createdAt)} • Status: {normStatus(o.status)}
                   </div>
                 </div>
 
-                <div style={{ textAlign: "right", minWidth: 220 }}>
-                  <div style={{ fontSize: 12, opacity: 0.75 }}>Docket</div>
-                  <div style={{ fontSize: 22, fontWeight: 800 }}>{idx + 1} / {orders.length}</div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 12, opacity: 0.75 }}>Total</div>
+                  <div style={{ fontSize: 22, fontWeight: 900 }}>{formatGBPFromPence(o.totalPence || 0)}</div>
                 </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 14 }}>
-                <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
+                <div style={{ border: "1px solid #eaeaea", borderRadius: 12, padding: 12 }}>
                   <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Customer</div>
-                  <div style={{ fontWeight: 700 }}>{o.customerName || "-"}</div>
+                  <div style={{ fontWeight: 800 }}>{o.customerName || "-"}</div>
                   <div style={{ fontSize: 13, marginTop: 4 }}>{o.customerEmail || "-"}</div>
                   <div style={{ fontSize: 13, marginTop: 2 }}>{o.customerPhone || "-"}</div>
                 </div>
 
-                <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
-                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Postcode</div>
-                  <div style={{ fontWeight: 800, fontSize: 18 }}>{o.postcode || "-"}</div>
+                <div style={{ border: "1px solid #eaeaea", borderRadius: 12, padding: 12 }}>
+                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Delivery postcode</div>
+                  <div style={{ fontWeight: 900, fontSize: 18 }}>{o.postcode || "-"}</div>
                 </div>
               </div>
 
               <div style={{ marginTop: 14 }}>
-                <div style={{ fontWeight: 700, marginBottom: 8 }}>Items</div>
+                <div style={{ fontWeight: 800, marginBottom: 8 }}>Items</div>
 
-                <div style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
+                <div style={{ border: "1px solid #eaeaea", borderRadius: 12, overflow: "hidden" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ background: "#fafafa" }}>
@@ -295,8 +281,8 @@ const PrintPage: NextPage = () => {
                 </div>
               </div>
 
-              <div style={{ marginTop: 14, fontSize: 12, opacity: 0.7 }}>
-                Notes / signature: ________________________________________________
+              <div style={{ marginTop: 14, fontSize: 12, opacity: 0.8 }}>
+                Delivered by: ______________________ &nbsp;&nbsp; Signature: ______________________ &nbsp;&nbsp; Date: __________
               </div>
             </div>
           );
@@ -304,17 +290,31 @@ const PrintPage: NextPage = () => {
       </div>
 
       <style jsx global>{`
+        .sheet {
+          border: 1px solid #ddd;
+          border-radius: 14px;
+          padding: 18px;
+          margin-bottom: 18px;
+          break-inside: avoid;
+          background: #fff;
+        }
+
         @media print {
-          a,
-          button,
-          input {
+          .no-print {
             display: none !important;
           }
           body {
             background: #fff !important;
           }
-          div {
-            box-shadow: none !important;
+          .sheet {
+            border: none;
+            border-radius: 0;
+            margin: 0;
+            padding: 0;
+            page-break-after: always;
+          }
+          .sheet:last-child {
+            page-break-after: auto;
           }
         }
       `}</style>
