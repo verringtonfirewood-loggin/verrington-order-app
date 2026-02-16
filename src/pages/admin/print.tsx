@@ -61,16 +61,34 @@ function paymentLabel(method: string) {
   return m || "—";
 }
 
-function paymentColours(status: string) {
+function paymentColours(method: string, status: string) {
+  const m = String(method || "").toUpperCase();
   const s = String(status || "").toUpperCase();
+
+  // ✅ Paid = green (quick win)
   if (s === "PAID") return { bg: "#e8f7ee", fg: "#1f7a4c", border: "#b7ebce" };
-  if (s === "FAILED") return { bg: "#fdecec", fg: "#b42318", border: "#f5c2c0" };
+
+  // ✅ Pending = amber
   if (s === "PENDING") return { bg: "#fff4e5", fg: "#b54708", border: "#fcd9bd" };
+
+  // ✅ Failed/cancelled/etc = red-ish
+  if (s === "FAILED") return { bg: "#fdecec", fg: "#b42318", border: "#f5c2c0" };
+  if (s === "EXPIRED") return { bg: "#fff0e5", fg: "#9a3412", border: "#fed7aa" };
+  if (s === "CANCELED") return { bg: "#f4f4f5", fg: "#3f3f46", border: "#e4e4e7" };
+
+  // ✅ Unpaid gets method-specific colour
+  if (s === "UNPAID") {
+    if (m === "BACS") return { bg: "#e8f3ff", fg: "#1e40af", border: "#bfdbfe" }; // blue
+    if (m === "CASH") return { bg: "#f3f4f6", fg: "#111827", border: "#d1d5db" }; // neutral/grey
+    if (m === "MOLLIE") return { bg: "#fff4e5", fg: "#b54708", border: "#fcd9bd" }; // amber
+  }
+
+  // Default neutral
   return { bg: "#f3f4f6", fg: "#444", border: "#e5e7eb" };
 }
 
 function PaymentPill({ method, status }: { method: string; status: string }) {
-  const c = paymentColours(status);
+  const c = paymentColours(method, status);
   return (
     <span
       style={{
