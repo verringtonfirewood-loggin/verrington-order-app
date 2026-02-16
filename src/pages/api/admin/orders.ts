@@ -17,14 +17,23 @@ type AdminOrder = {
   id: string;
   createdAt: string;
   status: string;
+
   customerName: string;
   customerPhone: string;
   customerEmail: string;
   postcode: string;
+
   totalPence: number;
   subtotalPence?: number;
   deliveryFeePence?: number;
+
   orderNumber: string | null;
+
+  // NEW: payment trail
+  paymentMethod: string; // e.g. MOLLIE/CASH/BACS
+  paymentStatus: string; // e.g. PAID/FAILED/PENDING/UNPAID
+  paidAt: string | null;
+
   items: AdminOrderItem[];
 };
 
@@ -56,12 +65,20 @@ function toAdminOrder(raw: any): AdminOrder {
     id: String(raw.id),
     createdAt: raw.createdAt instanceof Date ? raw.createdAt.toISOString() : String(raw.createdAt),
     status: String(raw.status ?? "NEW"),
+
     customerName: String(raw.customerName ?? ""),
     customerPhone: String(raw.customerPhone ?? ""),
     customerEmail: String(raw.customerEmail ?? ""),
     postcode: String(raw.postcode ?? ""),
+
     totalPence: Number(raw.totalPence ?? 0),
     orderNumber: raw.orderNumber == null ? null : String(raw.orderNumber),
+
+    // Payment trail (from your schema)
+    paymentMethod: String(raw.checkoutPaymentMethod ?? "BACS"),
+    paymentStatus: String(raw.paymentStatus ?? "UNPAID"),
+    paidAt: raw.paidAt instanceof Date ? raw.paidAt.toISOString() : raw.paidAt ? String(raw.paidAt) : null,
+
     items: itemsRaw.map((it) => ({
       id: String(it.id),
       productId: it.productId == null ? null : String(it.productId),
@@ -89,7 +106,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const prisma = getPrisma();
 
     const ids = parseIdsParam(req.query.ids);
-
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
     const status = typeof req.query.status === "string" ? req.query.status.trim() : "";
     const takeRaw = Array.isArray(req.query.take) ? req.query.take[0] : req.query.take;

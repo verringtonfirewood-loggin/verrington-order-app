@@ -16,14 +16,22 @@ type AdminOrder = {
   id: string;
   createdAt: string;
   status: string;
+
   customerName: string;
   customerPhone: string;
   customerEmail: string;
   postcode: string;
+
   totalPence: number;
   subtotalPence?: number;
   deliveryFeePence?: number;
+
   orderNumber: string | null;
+
+  paymentMethod: string;
+  paymentStatus: string;
+  paidAt: string | null;
+
   items: AdminOrderItem[];
 };
 
@@ -47,6 +55,43 @@ function normStatus(s: string) {
   return String(s || "").trim().toUpperCase().replace(/_/g, "-");
 }
 
+function paymentLabel(method: string) {
+  const m = String(method || "").toUpperCase();
+  if (m === "MOLLIE") return "CARD";
+  return m || "—";
+}
+
+function paymentColours(status: string) {
+  const s = String(status || "").toUpperCase();
+  if (s === "PAID") return { bg: "#e8f7ee", fg: "#1f7a4c", border: "#b7ebce" };
+  if (s === "FAILED") return { bg: "#fdecec", fg: "#b42318", border: "#f5c2c0" };
+  if (s === "PENDING") return { bg: "#fff4e5", fg: "#b54708", border: "#fcd9bd" };
+  return { bg: "#f3f4f6", fg: "#444", border: "#e5e7eb" };
+}
+
+function PaymentPill({ method, status }: { method: string; status: string }) {
+  const c = paymentColours(status);
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "6px 10px",
+        borderRadius: 999,
+        fontSize: 12,
+        fontWeight: 900,
+        background: c.bg,
+        color: c.fg,
+        border: `1px solid ${c.border}`,
+        letterSpacing: 0.3,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {paymentLabel(method)} • {String(status || "").toUpperCase() || "—"}
+    </span>
+  );
+}
+
 const PrintPage: NextPage = () => {
   const router = useRouter();
 
@@ -58,10 +103,7 @@ const PrintPage: NextPage = () => {
         : Array.isArray(raw) && typeof raw[0] === "string"
         ? raw[0]
         : "";
-    return s
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean);
+    return s.split(",").map((x) => x.trim()).filter(Boolean);
   }, [router.query.ids]);
 
   const [username, setUsername] = useState("mike");
@@ -88,8 +130,9 @@ const PrintPage: NextPage = () => {
       setError("No order ids provided in the URL (expected ?ids=id1,id2,...)");
       return;
     }
+
     if (!u || !p) {
-      setError("Enter username + password, then click Load.");
+      setError("Enter username and password, then click Load.");
       return;
     }
 
@@ -177,12 +220,6 @@ const PrintPage: NextPage = () => {
         </div>
       )}
 
-      {!error && !orders.length && (
-        <div className="no-print" style={{ marginTop: 24, opacity: 0.8 }}>
-          Click <strong>Load</strong> to fetch {ids.length ? `${ids.length} order(s)` : "orders"}.
-        </div>
-      )}
-
       <div style={{ marginTop: 20 }}>
         {orders.map((o) => {
           const itemsSumPence = (o.items || []).reduce(
@@ -195,11 +232,16 @@ const PrintPage: NextPage = () => {
               <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
                 <div>
                   <div style={{ fontSize: 18, fontWeight: 800 }}>Verrington Firewood — Delivery Docket</div>
-                  <div style={{ fontSize: 12, marginTop: 4, opacity: 0.8 }}>
+                  <div style={{ fontSize: 12, marginTop: 4, opacity: 0.85 }}>
                     {o.orderNumber ? `Order: ${o.orderNumber}` : `Order ID: ${o.id}`}
                   </div>
-                  <div style={{ fontSize: 12, marginTop: 2, opacity: 0.8 }}>
+                  <div style={{ fontSize: 12, marginTop: 2, opacity: 0.85 }}>
                     Created: {safeDate(o.createdAt)} • Status: {normStatus(o.status)}
+                  </div>
+
+                  <div style={{ marginTop: 8 }}>
+                    <PaymentPill method={o.paymentMethod} status={o.paymentStatus} />
+                    {o.paidAt ? <span style={{ marginLeft: 10, fontSize: 12, opacity: 0.75 }}>Paid: {safeDate(o.paidAt)}</span> : null}
                   </div>
                 </div>
 
@@ -281,7 +323,7 @@ const PrintPage: NextPage = () => {
                 </div>
               </div>
 
-              <div style={{ marginTop: 14, fontSize: 12, opacity: 0.8 }}>
+              <div style={{ marginTop: 14, fontSize: 12, opacity: 0.85 }}>
                 Delivered by: ______________________ &nbsp;&nbsp; Signature: ______________________ &nbsp;&nbsp; Date: __________
               </div>
             </div>
@@ -298,7 +340,6 @@ const PrintPage: NextPage = () => {
           break-inside: avoid;
           background: #fff;
         }
-
         @media print {
           .no-print {
             display: none !important;

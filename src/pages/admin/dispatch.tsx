@@ -22,30 +22,56 @@ type Order = {
   totalPence: number;
   items: OrderItem[];
   orderNumber?: string | null;
+
+  paymentMethod: string;
+  paymentStatus: string;
+  paidAt: string | null;
 };
 
 function formatGBPFromPence(pence: number) {
-  const gbp = (Number(pence || 0) / 100).toFixed(2);
-  return `£${gbp}`;
+  return `£${(Number(pence || 0) / 100).toFixed(2)}`;
 }
 
 function normStatus(s: string) {
-  return String(s || "")
-    .trim()
-    .toUpperCase()
-    .replace(/_/g, "-");
+  return String(s || "").trim().toUpperCase().replace(/_/g, "-");
 }
 
-function fmtDate(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("en-GB", {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function paymentLabel(method: string) {
+  const m = String(method || "").toUpperCase();
+  if (m === "MOLLIE") return "CARD";
+  return m || "—";
+}
+
+function paymentColours(status: string) {
+  const s = String(status || "").toUpperCase();
+  if (s === "PAID") return { bg: "#e8f7ee", fg: "#1f7a4c", border: "#b7ebce", row: "#f3fbf7" };
+  if (s === "FAILED") return { bg: "#fdecec", fg: "#b42318", border: "#f5c2c0", row: "#fff7f7" };
+  if (s === "PENDING") return { bg: "#fff4e5", fg: "#b54708", border: "#fcd9bd", row: "#fffaf2" };
+  if (s === "UNPAID") return { bg: "#f3f4f6", fg: "#444", border: "#e5e7eb", row: "" };
+  return { bg: "#f3f4f6", fg: "#444", border: "#e5e7eb", row: "" };
+}
+
+function PaymentPill({ method, status }: { method: string; status: string }) {
+  const c = paymentColours(status);
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "6px 10px",
+        borderRadius: 999,
+        fontSize: 12,
+        fontWeight: 900,
+        background: c.bg,
+        color: c.fg,
+        border: `1px solid ${c.border}`,
+        letterSpacing: 0.3,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {paymentLabel(method)} • {String(status || "").toUpperCase() || "—"}
+    </span>
+  );
 }
 
 const DispatchPage: NextPage = () => {
@@ -59,7 +85,6 @@ const DispatchPage: NextPage = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
 
-  // Auto-fill + auto-load if creds exist in this tab session
   useEffect(() => {
     const stored = loadAdminCreds();
     if (stored) {
@@ -70,10 +95,7 @@ const DispatchPage: NextPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const selectedIds = useMemo(
-    () => Object.keys(selected).filter((id) => selected[id]),
-    [selected]
-  );
+  const selectedIds = useMemo(() => Object.keys(selected).filter((id) => selected[id]), [selected]);
 
   const selectedTotal = useMemo(() => {
     const byId = new Map(orders.map((o) => [o.id, o]));
@@ -83,7 +105,6 @@ const DispatchPage: NextPage = () => {
   const filteredOrders = useMemo(() => {
     const term = q.trim().toLowerCase();
     if (!term) return orders;
-
     return orders.filter((o) => {
       const hay = [
         o.postcode,
@@ -93,6 +114,8 @@ const DispatchPage: NextPage = () => {
         o.id,
         o.orderNumber,
         o.status,
+        o.paymentMethod,
+        o.paymentStatus,
       ]
         .filter(Boolean)
         .join(" ")
@@ -105,12 +128,8 @@ const DispatchPage: NextPage = () => {
     () => filteredOrders.filter((o) => normStatus(o.status) === "PAID").map((o) => o.id),
     [filteredOrders]
   );
-
   const ofdIds = useMemo(
-    () =>
-      filteredOrders
-        .filter((o) => normStatus(o.status) === "OUT-FOR-DELIVERY")
-        .map((o) => o.id),
+    () => filteredOrders.filter((o) => normStatus(o.status) === "OUT-FOR-DELIVERY").map((o) => o.id),
     [filteredOrders]
   );
 
@@ -119,24 +138,21 @@ const DispatchPage: NextPage = () => {
       setErr("Enter the admin password, then click Load.");
       return;
     }
-
-    // remember for this tab session
     saveAdminCreds({ username: u, password: p });
 
     setLoading(true);
     if (!opts?.silent) setErr(null);
 
     try {
-      // Keep using your existing API filters (works with current DB casing)
-      const paid = await adminFetch<{ ok: true; orders: Order[] }>(
-        `/api/admin/orders?status=paid&take=200`,
-        { username: u, password: p }
-      );
+      const paid = await adminFetch<{ ok: true; orders: Order[] }>(`/api/admin/orders?status=paid&take=200`, {
+        username: u,
+        password: p,
+      });
 
-      const ofd = await adminFetch<{ ok: true; orders: Order[] }>(
-        `/api/admin/orders?status=out-for-delivery&take=200`,
-        { username: u, password: p }
-      );
+      const ofd = await adminFetch<{ ok: true; orders: Order[] }>(`/api/admin/orders?status=out-for-delivery&take=200`, {
+        username: u,
+        password: p,
+      });
 
       const merged = [...(paid.orders || []), ...(ofd.orders || [])].sort((a, b) =>
         a.createdAt < b.createdAt ? 1 : -1
@@ -179,8 +195,7 @@ const DispatchPage: NextPage = () => {
 
   function printSelected() {
     if (!selectedIds.length) return;
-    const ids = selectedIds.join(",");
-    window.open(`/admin/print?ids=${encodeURIComponent(ids)}`, "_blank", "noopener,noreferrer");
+    window.open(`/admin/print?ids=${encodeURIComponent(selectedIds.join(","))}`, "_blank", "noopener,noreferrer");
   }
 
   async function bulkSetStatus(nextStatus: "out-for-delivery" | "delivered") {
@@ -205,7 +220,6 @@ const DispatchPage: NextPage = () => {
           password: pass,
         });
       }
-
       await load(user, pass, { silent: true });
     } catch (e: any) {
       setErr(e?.message ?? "Bulk update failed");
@@ -221,7 +235,6 @@ const DispatchPage: NextPage = () => {
 
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
-      {/* Sticky control bar */}
       <div
         style={{
           position: "sticky",
@@ -235,7 +248,6 @@ const DispatchPage: NextPage = () => {
       >
         <header style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <h1 style={{ margin: 0, fontSize: 34 }}>Dispatch</h1>
-
           <div style={{ marginLeft: "auto", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <Link href="/admin">← Admin Home</Link>
             <Link href="/admin/orders">Orders</Link>
@@ -248,7 +260,6 @@ const DispatchPage: NextPage = () => {
             <input
               value={user}
               onChange={(e) => setUser(e.target.value)}
-              placeholder="mike"
               style={{ padding: 8, borderRadius: 10, border: "1px solid #ddd", width: 180 }}
             />
           </div>
@@ -258,7 +269,6 @@ const DispatchPage: NextPage = () => {
             <input
               value={pass}
               onChange={(e) => setPass(e.target.value)}
-              placeholder="password"
               type="password"
               style={{ padding: 8, borderRadius: 10, border: "1px solid #ddd", width: 220 }}
             />
@@ -344,7 +354,6 @@ const DispatchPage: NextPage = () => {
               borderRadius: 10,
               border: "1px solid #ddd",
               background: "#fff",
-              cursor: selectedIds.length ? "pointer" : "not-allowed",
             }}
           >
             Mark DELIVERED
@@ -352,7 +361,6 @@ const DispatchPage: NextPage = () => {
 
           <div style={{ flex: 1 }} />
 
-          {/* Quick-select buttons */}
           <button
             onClick={() => selectAll(paidIds)}
             disabled={!paidIds.length}
@@ -391,50 +399,53 @@ const DispatchPage: NextPage = () => {
         )}
       </div>
 
-      {/* Orders table */}
       <div style={{ border: "1px solid #eee", borderRadius: 14, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: "#fafafa" }}>
               <th style={{ width: 44, padding: 10, textAlign: "center" }} />
-              <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Created</th>
-              <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Status</th>
-              <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Customer</th>
               <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Postcode</th>
+              <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Customer</th>
+              <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Status</th>
+              <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Payment</th>
               <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Items</th>
               <th style={{ padding: 10, textAlign: "right", fontSize: 12, opacity: 0.8 }}>Total</th>
               <th style={{ padding: 10, textAlign: "right", fontSize: 12, opacity: 0.8 }} />
             </tr>
           </thead>
           <tbody>
-            {filteredOrders.map((o) => (
-              <tr key={o.id} style={{ borderTop: "1px solid #eee" }}>
-                <td style={{ padding: 10, textAlign: "center" }}>
-                  <input type="checkbox" checked={!!selected[o.id]} onChange={() => toggle(o.id)} />
-                </td>
-                <td style={{ padding: 10 }}>{fmtDate(o.createdAt)}</td>
-                <td style={{ padding: 10, fontWeight: 800 }}>{normStatus(o.status)}</td>
-                <td style={{ padding: 10 }}>
-                  <div style={{ fontWeight: 800 }}>{o.customerName || "-"}</div>
-                  <div style={{ fontSize: 12, opacity: 0.75 }}>{o.customerEmail || ""}</div>
-                  <div style={{ fontSize: 12, opacity: 0.75 }}>{o.customerPhone || ""}</div>
-                  <div style={{ fontSize: 12, opacity: 0.6 }}>{o.orderNumber || o.id}</div>
-                </td>
-                <td style={{ padding: 10, fontWeight: 800 }}>{o.postcode || "-"}</td>
-                <td style={{ padding: 10, fontSize: 13 }}>
-                  {(o.items || []).slice(0, 3).map((it) => (
-                    <div key={it.id}>
-                      • {it.quantity} × {it.name || it.productId || "Item"}
-                    </div>
-                  ))}
-                  {(o.items || []).length > 3 && <div>…</div>}
-                </td>
-                <td style={{ padding: 10, textAlign: "right", fontWeight: 900 }}>{formatGBPFromPence(o.totalPence)}</td>
-                <td style={{ padding: 10, textAlign: "right" }}>
-                  <Link href={`/admin/orders/${o.id}`}>View →</Link>
-                </td>
-              </tr>
-            ))}
+            {filteredOrders.map((o) => {
+              const c = paymentColours(o.paymentStatus);
+              return (
+                <tr key={o.id} style={{ borderTop: "1px solid #eee", background: c.row || undefined }}>
+                  <td style={{ padding: 10, textAlign: "center" }}>
+                    <input type="checkbox" checked={!!selected[o.id]} onChange={() => toggle(o.id)} />
+                  </td>
+                  <td style={{ padding: 10, fontWeight: 800 }}>{o.postcode}</td>
+                  <td style={{ padding: 10 }}>
+                    <div style={{ fontWeight: 900 }}>{o.customerName || "-"}</div>
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>{o.customerPhone || ""}</div>
+                    <div style={{ fontSize: 12, opacity: 0.6 }}>{o.orderNumber || o.id}</div>
+                  </td>
+                  <td style={{ padding: 10, fontWeight: 900 }}>{normStatus(o.status)}</td>
+                  <td style={{ padding: 10 }}>
+                    <PaymentPill method={o.paymentMethod} status={o.paymentStatus} />
+                  </td>
+                  <td style={{ padding: 10, fontSize: 13 }}>
+                    {(o.items || []).slice(0, 3).map((it) => (
+                      <div key={it.id}>
+                        • {it.quantity} × {it.name || it.productId || "Item"}
+                      </div>
+                    ))}
+                    {(o.items || []).length > 3 && <div>…</div>}
+                  </td>
+                  <td style={{ padding: 10, textAlign: "right", fontWeight: 900 }}>{formatGBPFromPence(o.totalPence)}</td>
+                  <td style={{ padding: 10, textAlign: "right" }}>
+                    <Link href={`/admin/orders/${o.id}`}>View →</Link>
+                  </td>
+                </tr>
+              );
+            })}
 
             {!filteredOrders.length && (
               <tr>
@@ -445,10 +456,6 @@ const DispatchPage: NextPage = () => {
             )}
           </tbody>
         </table>
-      </div>
-
-      <div style={{ marginTop: 12, fontSize: 12, opacity: 0.65 }}>
-        Tip: with session auth enabled, you only type the password once per tab.
       </div>
     </main>
   );

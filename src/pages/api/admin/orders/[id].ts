@@ -17,14 +17,22 @@ type AdminOrder = {
   id: string;
   createdAt: string;
   status: string;
+
   customerName: string;
   customerPhone: string;
   customerEmail: string;
   postcode: string;
+
   totalPence: number;
   subtotalPence?: number;
   deliveryFeePence?: number;
+
   orderNumber: string | null;
+
+  paymentMethod: string;
+  paymentStatus: string;
+  paidAt: string | null;
+
   items: AdminOrderItem[];
 };
 
@@ -35,12 +43,19 @@ function toAdminOrder(raw: any): AdminOrder {
     id: String(raw.id),
     createdAt: raw.createdAt instanceof Date ? raw.createdAt.toISOString() : String(raw.createdAt),
     status: String(raw.status ?? "NEW"),
+
     customerName: String(raw.customerName ?? ""),
     customerPhone: String(raw.customerPhone ?? ""),
     customerEmail: String(raw.customerEmail ?? ""),
     postcode: String(raw.postcode ?? ""),
+
     totalPence: Number(raw.totalPence ?? 0),
     orderNumber: raw.orderNumber == null ? null : String(raw.orderNumber),
+
+    paymentMethod: String(raw.checkoutPaymentMethod ?? "BACS"),
+    paymentStatus: String(raw.paymentStatus ?? "UNPAID"),
+    paidAt: raw.paidAt instanceof Date ? raw.paidAt.toISOString() : raw.paidAt ? String(raw.paidAt) : null,
+
     items: itemsRaw.map((it) => ({
       id: String(it.id),
       productId: it.productId == null ? null : String(it.productId),
@@ -62,13 +77,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const prisma = getPrisma();
     const id = typeof req.query.id === "string" ? req.query.id : "";
-
     if (!id) return res.status(400).json({ ok: false, error: "Invalid order id" });
 
     if (req.method === "GET") {
       const order = await prisma.order.findUnique({
         where: { id },
-        include: { items: true }, // NO product relation
+        include: { items: true },
       });
 
       if (!order) return res.status(404).json({ ok: false, error: "Order not found" });
@@ -77,7 +91,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     if (req.method === "PATCH") {
-      // Minimal safe patch: allow status + orderNumber updates (extend if you want)
       const { status, orderNumber } = (req.body ?? {}) as {
         status?: unknown;
         orderNumber?: unknown;
@@ -95,7 +108,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       const updated = await prisma.order.update({
         where: { id },
         data,
-        include: { items: true }, // keep shape consistent
+        include: { items: true },
       });
 
       return res.status(200).json({ ok: true, order: toAdminOrder(updated) });

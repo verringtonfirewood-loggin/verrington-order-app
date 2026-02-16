@@ -15,14 +15,22 @@ type OrderRow = {
   id: string;
   createdAt: string;
   status: string;
+
   customerName: string;
   customerPhone: string;
   customerEmail: string;
   postcode: string;
+
   totalPence: number;
   subtotalPence?: number;
   deliveryFeePence?: number;
+
   orderNumber: string | null;
+
+  paymentMethod: string;
+  paymentStatus: string;
+  paidAt: string | null;
+
   items: OrderItem[];
 };
 
@@ -42,6 +50,44 @@ function fmtDate(iso: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function paymentLabel(method: string) {
+  const m = String(method || "").toUpperCase();
+  if (m === "MOLLIE") return "CARD";
+  return m || "—";
+}
+
+function paymentColours(status: string) {
+  const s = String(status || "").toUpperCase();
+  if (s === "PAID") return { bg: "#e8f7ee", fg: "#1f7a4c", border: "#b7ebce", row: "#f3fbf7" };
+  if (s === "FAILED") return { bg: "#fdecec", fg: "#b42318", border: "#f5c2c0", row: "#fff7f7" };
+  if (s === "PENDING") return { bg: "#fff4e5", fg: "#b54708", border: "#fcd9bd", row: "#fffaf2" };
+  if (s === "UNPAID") return { bg: "#f3f4f6", fg: "#444", border: "#e5e7eb", row: "" };
+  return { bg: "#f3f4f6", fg: "#444", border: "#e5e7eb", row: "" };
+}
+
+function PaymentPill({ method, status }: { method: string; status: string }) {
+  const c = paymentColours(status);
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "6px 10px",
+        borderRadius: 999,
+        fontSize: 12,
+        fontWeight: 900,
+        background: c.bg,
+        color: c.fg,
+        border: `1px solid ${c.border}`,
+        letterSpacing: 0.3,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {paymentLabel(method)} • {String(status || "").toUpperCase() || "—"}
+    </span>
+  );
 }
 
 export default function OrdersPage() {
@@ -74,7 +120,6 @@ export default function OrdersPage() {
     if (stored) {
       setUsername(stored.username);
       setPassword(stored.password);
-      // auto-load once when creds exist
       void loadOrders(stored.username, stored.password, { silent: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -106,7 +151,6 @@ export default function OrdersPage() {
       if (!("ok" in data) || data.ok !== true) throw new Error((data as any)?.error || "Failed");
 
       setOrders(data.orders || []);
-      // keep selections for still-visible ids
       setSelected((prev) => {
         const next: Record<string, boolean> = {};
         for (const o of data.orders || []) next[o.id] = Boolean(prev[o.id]);
@@ -144,9 +188,7 @@ export default function OrdersPage() {
   }
 
   const printHref =
-    selectedIds.length > 0
-      ? `/admin/print?ids=${encodeURIComponent(selectedIds.join(","))}`
-      : "";
+    selectedIds.length > 0 ? `/admin/print?ids=${encodeURIComponent(selectedIds.join(","))}` : "";
 
   return (
     <div style={{ padding: 24 }}>
@@ -349,6 +391,7 @@ export default function OrdersPage() {
                 </th>
                 <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Created</th>
                 <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Status</th>
+                <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Payment</th>
                 <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Customer</th>
                 <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Postcode</th>
                 <th style={{ padding: 10, textAlign: "left", fontSize: 12, opacity: 0.8 }}>Items</th>
@@ -357,44 +400,64 @@ export default function OrdersPage() {
               </tr>
             </thead>
             <tbody>
-              {orders.map((o) => (
-                <tr key={o.id} style={{ borderTop: "1px solid #eee" }}>
-                  <td style={{ padding: 10, textAlign: "center" }}>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(selected[o.id])}
-                      onChange={() => toggleOne(o.id)}
-                      aria-label={`Select order ${o.id}`}
-                    />
-                  </td>
+              {orders.map((o) => {
+                const c = paymentColours(o.paymentStatus);
+                return (
+                  <tr
+                    key={o.id}
+                    style={{
+                      borderTop: "1px solid #eee",
+                      background: c.row || undefined,
+                    }}
+                  >
+                    <td style={{ padding: 10, textAlign: "center" }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(selected[o.id])}
+                        onChange={() => toggleOne(o.id)}
+                        aria-label={`Select order ${o.id}`}
+                      />
+                    </td>
 
-                  <td style={{ padding: 10 }}>{fmtDate(o.createdAt)}</td>
-                  <td style={{ padding: 10, fontWeight: 700 }}>{String(o.status || "").toUpperCase()}</td>
-                  <td style={{ padding: 10 }}>
-                    <div style={{ fontWeight: 700 }}>{o.customerName || "-"}</div>
-                    <div style={{ fontSize: 12, opacity: 0.75 }}>{o.customerEmail || ""}</div>
-                    <div style={{ fontSize: 12, opacity: 0.75 }}>{o.customerPhone || ""}</div>
-                    <div style={{ fontSize: 12, opacity: 0.6 }}>{o.orderNumber || o.id}</div>
-                  </td>
-                  <td style={{ padding: 10, fontWeight: 700 }}>{o.postcode || "-"}</td>
-                  <td style={{ padding: 10, fontSize: 13 }}>
-                    {(o.items || []).slice(0, 2).map((it) => (
-                      <div key={it.id}>
-                        • {it.quantity} × {it.name}
-                      </div>
-                    ))}
-                    {(o.items || []).length > 2 && <div>…</div>}
-                  </td>
-                  <td style={{ padding: 10, textAlign: "right", fontWeight: 800 }}>{gbp(o.totalPence)}</td>
-                  <td style={{ padding: 10, textAlign: "right" }}>
-                    <Link href={`/admin/orders/${o.id}`}>View →</Link>
-                  </td>
-                </tr>
-              ))}
+                    <td style={{ padding: 10 }}>{fmtDate(o.createdAt)}</td>
+                    <td style={{ padding: 10, fontWeight: 700 }}>{String(o.status || "").toUpperCase()}</td>
+
+                    <td style={{ padding: 10 }}>
+                      <PaymentPill method={o.paymentMethod} status={o.paymentStatus} />
+                      {o.paidAt ? (
+                        <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>{fmtDate(o.paidAt)}</div>
+                      ) : null}
+                    </td>
+
+                    <td style={{ padding: 10 }}>
+                      <div style={{ fontWeight: 700 }}>{o.customerName || "-"}</div>
+                      <div style={{ fontSize: 12, opacity: 0.75 }}>{o.customerEmail || ""}</div>
+                      <div style={{ fontSize: 12, opacity: 0.75 }}>{o.customerPhone || ""}</div>
+                      <div style={{ fontSize: 12, opacity: 0.6 }}>{o.orderNumber || o.id}</div>
+                    </td>
+
+                    <td style={{ padding: 10, fontWeight: 700 }}>{o.postcode || "-"}</td>
+
+                    <td style={{ padding: 10, fontSize: 13 }}>
+                      {(o.items || []).slice(0, 2).map((it) => (
+                        <div key={it.id}>
+                          • {it.quantity} × {it.name}
+                        </div>
+                      ))}
+                      {(o.items || []).length > 2 && <div>…</div>}
+                    </td>
+
+                    <td style={{ padding: 10, textAlign: "right", fontWeight: 800 }}>{gbp(o.totalPence)}</td>
+                    <td style={{ padding: 10, textAlign: "right" }}>
+                      <Link href={`/admin/orders/${o.id}`}>View →</Link>
+                    </td>
+                  </tr>
+                );
+              })}
 
               {!orders.length && (
                 <tr>
-                  <td colSpan={8} style={{ padding: 16, textAlign: "center", opacity: 0.7 }}>
+                  <td colSpan={9} style={{ padding: 16, textAlign: "center", opacity: 0.7 }}>
                     No orders loaded yet — enter credentials and click “Load orders”.
                   </td>
                 </tr>
@@ -405,7 +468,7 @@ export default function OrdersPage() {
       </div>
 
       <div style={{ marginTop: 18, fontSize: 12, opacity: 0.65 }}>
-        Tip: with “Remember for this tab session” enabled, you only type the password once.
+        Payment row tinting: green=PAID, red=FAILED, amber=PENDING.
       </div>
     </div>
   );
