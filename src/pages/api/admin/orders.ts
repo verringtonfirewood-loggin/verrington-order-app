@@ -29,12 +29,32 @@ type AdminOrder = {
 };
 
 function toInt(value: unknown, fallback: number): number {
-  const n = typeof value === "string" ? parseInt(value, 10) : typeof value === "number" ? value : NaN;
+  const n =
+    typeof value === "string"
+      ? parseInt(value, 10)
+      : typeof value === "number"
+      ? value
+      : NaN;
   return Number.isFinite(n) ? n : fallback;
 }
 
+function parseIdsParam(input: unknown): string[] {
+  const raw =
+    typeof input === "string"
+      ? input
+      : Array.isArray(input) && typeof input[0] === "string"
+      ? input[0]
+      : "";
+
+  if (!raw) return [];
+  // ids are passed comma-separated, URL encoded in the browser
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function toAdminOrder(raw: any): AdminOrder {
-  // We intentionally do NOT rely on any Product relation.
   const itemsRaw: any[] = Array.isArray(raw?.items) ? raw.items : [];
 
   const mapped: AdminOrder = {
@@ -56,7 +76,6 @@ function toAdminOrder(raw: any): AdminOrder {
     })),
   };
 
-  // Include these ONLY if they exist on the DB record (no schema coupling).
   if (typeof raw.subtotalPence === "number") mapped.subtotalPence = raw.subtotalPence;
   if (typeof raw.deliveryFeePence === "number") mapped.deliveryFeePence = raw.deliveryFeePence;
 
@@ -74,6 +93,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const prisma = getPrisma();
 
+    const ids = parseIdsParam(req.query.ids);
+
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
     const status = typeof req.query.status === "string" ? req.query.status.trim() : "";
     const takeRaw = Array.isArray(req.query.take) ? req.query.take[0] : req.query.take;
@@ -81,37 +102,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const where: any = {};
 
-    if (status) {
-      where.status = status;
-    }
+    // If ids are provided, this is a direct lookup for print/docket (or bulk ops).
+    if (ids.length > 0) {
+      where.id = { in: ids };
+    } else {
+      if (status) where.status = status;
 
-    if (q) {
-      // Search across common admin fields. Keep it simple + robust.
-      // NOTE: If a field doesn't exist in your Prisma schema, Prisma will error.
-      // These are very likely present given your admin UI needs.
-      where.OR = [
-        { id: { contains: q } },
-        { customerName: { contains: q, mode: "insensitive" } },
-        { customerEmail: { contains: q, mode: "insensitive" } },
-        { customerPhone: { contains: q, mode: "insensitive" } },
-        { postcode: { contains: q, mode: "insensitive" } },
-        { orderNumber: { contains: q, mode: "insensitive" } },
-      ];
+      if (q) {
+        where.OR = [
+          { id: { contains: q } },
+          { customerName: { contains: q, mode: "insensitive" } },
+          { customerEmail: { contains: q, mode: "insensitive" } },
+          { customerPhone: { contains: q, mode: "insensitive" } },
+          { postcode: { contains: q, mode: "insensitive" } },
+          { orderNumber: { contains: q, mode: "insensitive" } },
+        ];
+      }
     }
 
     const orders = await prisma.order.findMany({
       where,
+      include: { items: true },
       orderBy: { createdAt: "desc" },
-      take,
-      include: {
-        items: true, // NO product relation
-      },
+      take: ids.length > 0 ? Math.min(ids.length, 200) : take,
     });
 
-    return res.status(200).json({
-      ok: true,
-      orders: orders.map(toAdminOrder),
-    });
+    // IMPORTANT for /admin/print?ids=... :
+    // return orders in the same order as the ids list (so the print layout matches selection order).
+    const mapped = orders.map(toAdminOrder);
+    const ordered =
+      ids.length > 0
+        ? ids
+            .map((id) => mapped.find((o) => o.id === id))
+            .filter(Boolean) as AdminOrder[]
+        : mapped;
+
+    return res.status(200).json({ ok: true, orders: ordered });
   } catch (err: any) {
     console.error("GET /api/admin/orders error:", err);
     return res.status(500).json({
@@ -120,3 +146,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 }
+d
