@@ -5,8 +5,6 @@ import StatusEditor from "./StatusEditor";
 
 export const dynamic = "force-dynamic";
 
-const prisma = getPrisma();
-
 function formatPence(pence: number) {
   return `£${(Number(pence) / 100).toFixed(2)}`;
 }
@@ -16,6 +14,8 @@ export default async function AdminOrderPage({
 }: {
   params: { id: string };
 }) {
+  const prisma = getPrisma();
+
   const order = await prisma.order.findUnique({
     where: { id: params.id },
     include: { items: true },
@@ -40,7 +40,10 @@ export default async function AdminOrderPage({
 
       <div className="mt-4 flex items-start justify-between gap-6">
         <div>
-          <h1 className="text-4xl font-bold">{order.orderNumber ?? order.id}</h1>
+          <h1 className="text-4xl font-bold">
+            {order.orderNumber ?? order.id}
+          </h1>
+
           <div className="mt-2 text-sm opacity-70">
             Created: {new Date(order.createdAt).toLocaleString()}
           </div>
@@ -48,14 +51,19 @@ export default async function AdminOrderPage({
 
         <div className="text-right">
           <div className="text-sm opacity-70">Total</div>
-          <div className="text-3xl font-bold">{formatPence(order.totalPence)}</div>
+          <div className="text-3xl font-bold">
+            {formatPence(order.totalPence)}
+          </div>
         </div>
       </div>
 
       <div className="mt-6">
         <h2 className="text-lg font-semibold">Status</h2>
         <div className="mt-2">
-          <StatusEditor orderId={order.id} initialStatus={order.status} />
+          <StatusEditor
+            orderId={order.id}
+            initialStatus={order.status}
+          />
         </div>
       </div>
 
@@ -64,7 +72,8 @@ export default async function AdminOrderPage({
         <ul className="mt-2 list-disc pl-5">
           {order.items.map((it) => (
             <li key={it.id}>
-              {it.quantity} × {it.name} — {formatPence(it.pricePence)} each — line{" "}
+              {it.quantity} × {it.name} —{" "}
+              {formatPence(it.pricePence)} each — line{" "}
               {formatPence(it.lineTotalPence)}
             </li>
           ))}
