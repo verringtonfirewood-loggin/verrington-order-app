@@ -1,11 +1,12 @@
 import type { NextPage } from "next";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { adminFetch, loadAdminCreds, saveAdminCreds } from "@/lib/adminClientAuth";
 
 type OrderItem = {
   id: string;
-  productId: string;
+  productId: string | null;
   name: string;
   pricePence: number;
   quantity: number;
@@ -22,15 +23,12 @@ type Order = {
   status: string;
   items: OrderItem[];
   orderNumber?: string | null;
-};
 
-function base64Utf8(input: string) {
-  if (typeof window === "undefined") return "";
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return window.btoa(binary);
-}
+  // NEW: payment trail
+  paymentMethod: string; // checkoutPaymentMethod enum (MOLLIE/CASH/BACS)
+  paymentStatus: string; // paymentStatus enum (PAID/FAILED/etc.)
+  paidAt: string | null;
+};
 
 function formatGBP(pence?: number) {
   const value = typeof pence === "number" ? pence / 100 : 0;
@@ -41,63 +39,93 @@ function formatDate(iso?: string) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("en-GB", {
+  return d.toLocaleString("en-GB", {
     year: "numeric",
     month: "short",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(d);
+  });
+}
+
+function normStatus(s: string) {
+  return String(s || "").trim().toUpperCase().replace(/_/g, "-");
+}
+
+function paymentLabel(method: string) {
+  const m = String(method || "").toUpperCase();
+  if (m === "MOLLIE") return "CARD";
+  return m || "—";
+}
+
+function paymentBadge(method: string, status: string) {
+  return `${paymentLabel(method)} • ${String(status || "").toUpperCase() || "—"}`;
 }
 
 const AdminOrderDetailPage: NextPage = () => {
   const router = useRouter();
-  const id = typeof router.query.id === "string" ? router.query.id : "";
+  const id = useMemo(() => (typeof router.query.id === "string" ? router.query.id : ""), [router.query.id]);
 
-  const [user, setUser] = useState("mike");
-  const [pass, setPass] = useState("");
+  const [username, setUsername] = useState("mike");
+  const [password, setPassword] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
   const [order, setOrder] = useState<Order | null>(null);
-  const [statuses, setStatuses] = useState<string[]>([]);
   const [status, setStatus] = useState<string>("");
+  const [statuses, setStatuses] = useState<string[]>([]);
 
-  const authHeader = useMemo(() => {
-    const pair = `${user}:${pass}`;
-    const b64 = base64Utf8(pair);
-    return `Basic ${b64}`;
-  }, [user, pass]);
+  useEffect(() => {
+    const stored = loadAdminCreds();
+    if (stored) {
+      setUsername(stored.username);
+      setPassword(stored.password);
+    }
+  }, []);
 
-  async function load() {
+  useEffect(() => {
+    // Auto-load when we have an id + stored creds
+    const stored = loadAdminCreds();
+    if (id && stored?.username && stored?.password) {
+      void loadOrder(stored.username, stored.password, { silent: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  async function loadOrder(u = username, p = password, opts?: { silent?: boolean }) {
     if (!id) return;
-    if (!pass) {
-      setError("Enter the admin password, then click Load.");
+    if (!u || !p) {
+      setError("Enter username and password, then click Load.");
       return;
     }
 
+    saveAdminCreds({ username: u, password: p });
+
     setLoading(true);
-    setError(null);
+    if (!opts?.silent) setError(null);
 
     try {
-      const [orderRes, statusesRes] = await Promise.all([
-        fetch(`/api/admin/orders/${encodeURIComponent(id)}`, { headers: { Authorization: authHeader } }),
-        fetch(`/api/admin/orders/statuses`, { headers: { Authorization: authHeader } }),
+      const [orderJson, statusJson] = await Promise.all([
+        adminFetch<{ ok: true; order: Order }>(`/api/admin/orders/${encodeURIComponent(id)}`, {
+          method: "GET",
+          username: u,
+          password: p,
+        }),
+        adminFetch<{ ok: true; statuses: string[] }>(`/api/admin/orders/statuses`, {
+          method: "GET",
+          username: u,
+          password: p,
+        }).catch(() => ({ ok: true as const, statuses: [] as string[] })),
       ]);
-
-      const orderJson = await orderRes.json();
-      if (!orderRes.ok || !orderJson?.ok) throw new Error(orderJson?.error ?? "Failed to load order");
-
-      const statusJson = statusesRes.ok ? await statusesRes.json() : null;
-      const statusList = Array.isArray(statusJson?.statuses) ? statusJson.statuses : [];
 
       const o: Order = orderJson.order;
       setOrder(o);
       setStatus(o.status);
-      setStatuses(statusList);
+      setStatuses(Array.isArray((statusJson as any)?.statuses) ? (statusJson as any).statuses : []);
     } catch (e: any) {
       setOrder(null);
       setError(e?.message ?? "Failed to load");
@@ -106,110 +134,114 @@ const AdminOrderDetailPage: NextPage = () => {
     }
   }
 
-  const items = order?.items ?? [];
-  const itemsTotal = items.reduce((sum, it) => sum + (it.pricePence ?? 0) * (it.quantity ?? 0), 0);
-
-  const statusOptions = useMemo(() => {
-    const current = order?.status ? [order.status] : [];
-    const list = Array.isArray(statuses) && statuses.length ? statuses : [];
-    return Array.from(new Set([...current, ...list]));
-  }, [statuses, order?.status]);
-
   async function setAndSave(nextStatus: string) {
-    if (!order) return;
-    if (!pass) {
-      setError("Enter the admin password first.");
+    if (!id) return;
+    if (!username || !password) {
+      setError("Enter username and password first.");
       return;
     }
 
-    setStatus(nextStatus);
+    saveAdminCreds({ username, password });
+
     setSaving(true);
-    setError(null);
     setOkMsg(null);
+    setError(null);
 
     try {
-      const r = await fetch(`/api/admin/orders/${encodeURIComponent(order.id)}`, {
+      const json = await adminFetch<{ ok: true; order: Order }>(`/api/admin/orders/${encodeURIComponent(id)}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: authHeader },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: nextStatus }),
+        username,
+        password,
       });
 
-      const txt = await r.text();
-      let payload: any = null;
-      try {
-        payload = txt ? JSON.parse(txt) : null;
-      } catch {
-        payload = txt;
-      }
-
-      if (!r.ok || !payload?.ok) {
-        const msg = payload?.error || payload?.message || (typeof payload === "string" ? payload : null) || `Request failed: ${r.status}`;
-        setError(msg);
-        return;
-      }
-
-      const updated: Order = payload.order;
-      setOrder(updated);
-      setStatus(updated.status);
-
-      setOkMsg(`Saved: ${String(updated.status).toUpperCase()}`);
-      setTimeout(() => setOkMsg(null), 2000);
+      setOrder(json.order);
+      setStatus(json.order.status);
+      setOkMsg("Saved");
+      setTimeout(() => setOkMsg(null), 1500);
     } catch (e: any) {
-      setError(e?.message ?? String(e));
+      setError(e?.message ?? "Failed to save");
     } finally {
       setSaving(false);
     }
   }
 
-  return (
-    <main style={{ padding: 20, maxWidth: 1000, margin: "0 auto" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-        <Link href="/admin/orders" style={{ textDecoration: "none", opacity: 0.8 }}>
-          ← Back to Orders
-        </Link>
-        <Link href="/admin" style={{ textDecoration: "none", opacity: 0.8 }}>
-          Admin Home
-        </Link>
+  const items = order?.items ?? [];
+  const itemsSubtotal = items.reduce((sum, it) => sum + (it.pricePence || 0) * (it.quantity || 0), 0);
 
-        <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }}>
-          <button onClick={load} disabled={loading} style={btnPrimary}>
+  const statusOptions = useMemo(() => {
+    const fromApi = (statuses || []).filter(Boolean);
+    const fallback = ["new", "pending", "confirmed", "paid", "out-for-delivery", "delivered", "cancelled"];
+    const list = fromApi.length ? fromApi : fallback;
+    // Keep current status at top if not present
+    if (order?.status && !list.includes(order.status)) return [order.status, ...list];
+    return list;
+  }, [statuses, order?.status]);
+
+  return (
+    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <Link href="/admin/orders">← Orders</Link>
+          <Link href="/admin/dispatch">Dispatch</Link>
+          <Link href="/admin">Admin Home</Link>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="username"
+            style={{ ...inp, width: 160 }}
+          />
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="password"
+            type="password"
+            style={{ ...inp, width: 160 }}
+          />
+          <button disabled={loading || !id} onClick={() => loadOrder()} style={btnPrimary}>
             {loading ? "Loading…" : "Load"}
           </button>
         </div>
       </div>
 
-      <section style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ padding: 12, background: "#fafafa", fontWeight: 700 }}>Basic Auth</div>
-        <div style={{ padding: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <label style={{ display: "grid", gap: 6 }}>
-            <div style={{ fontSize: 12, opacity: 0.75 }}>Username</div>
-            <input value={user} onChange={(e) => setUser(e.target.value)} style={inp} />
-          </label>
-          <label style={{ display: "grid", gap: 6 }}>
-            <div style={{ fontSize: 12, opacity: 0.75 }}>Password</div>
-            <input value={pass} onChange={(e) => setPass(e.target.value)} style={inp} type="password" />
-          </label>
+      {error && (
+        <div style={{ marginTop: 14, padding: 12, borderRadius: 12, border: "1px solid #f0c", background: "#fff5fb" }}>
+          <strong>Error:</strong> {error}
         </div>
-      </section>
+      )}
 
-      {error ? (
-        <div style={{ marginTop: 14, padding: 12, border: "1px solid #f3c2c2", borderRadius: 12, background: "#fff5f5" }}>
-          <div style={{ fontWeight: 800, color: "crimson" }}>Fix needed</div>
-          <div style={{ marginTop: 6 }}>{error}</div>
+      {!order && !loading && (
+        <div style={{ marginTop: 14, opacity: 0.8 }}>
+          Enter password and click <strong>Load</strong>.
         </div>
-      ) : null}
+      )}
 
-      {!order ? (
-        <div style={{ marginTop: 14, opacity: 0.75 }}>Load an order to begin.</div>
-      ) : (
+      {order && (
         <>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 18, flexWrap: "wrap", marginTop: 14 }}>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 14 }}>
             <div style={{ flex: "1 1 420px" }}>
               <h1 style={{ margin: 0, fontSize: 24 }}>Order {order.orderNumber ? `• ${order.orderNumber}` : ""}</h1>
-              <div style={{ marginTop: 6, opacity: 0.8, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+              <div
+                style={{
+                  marginTop: 6,
+                  opacity: 0.8,
+                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                }}
+              >
                 {order.id}
               </div>
+
               <div style={{ marginTop: 10, opacity: 0.7 }}>Created: {formatDate(order.createdAt)}</div>
+
+              {/* NEW: payment at-a-glance */}
+              <div style={{ marginTop: 8, opacity: 0.95, fontWeight: 900 }}>
+                Payment: {paymentBadge(order.paymentMethod, order.paymentStatus)}
+                {order.paidAt ? <span style={{ opacity: 0.75, fontWeight: 700 }}> • {formatDate(order.paidAt)}</span> : null}
+              </div>
 
               <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <div style={{ minWidth: 260 }}>
@@ -227,7 +259,10 @@ const AdminOrderDetailPage: NextPage = () => {
                   {saving ? "Saving…" : "Save"}
                 </button>
 
-                <Link href={`/admin/print?ids=${encodeURIComponent(order.id)}`} style={{ ...btnSecondary, textDecoration: "none", display: "inline-block" }}>
+                <Link
+                  href={`/admin/print?ids=${encodeURIComponent(order.id)}`}
+                  style={{ ...btnSecondary, textDecoration: "none", display: "inline-block" }}
+                >
                   Print docket
                 </Link>
 
@@ -242,9 +277,14 @@ const AdminOrderDetailPage: NextPage = () => {
                 <QuickBtn label="Cancel" disabled={saving} danger onClick={() => setAndSave("cancelled")} />
               </div>
 
-              <div style={{ marginTop: 12, opacity: 0.85 }}>
-                Total: <b>{formatGBP(order.totalPence)}</b>
-                <span style={{ opacity: 0.6 }}> (items sum: {formatGBP(itemsTotal)})</span>
+              <div style={{ marginTop: 14, border: "1px solid #eee", borderRadius: 12, padding: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>Totals</div>
+                  <div style={{ fontWeight: 900 }}>{formatGBP(order.totalPence)}</div>
+                </div>
+                <div style={{ marginTop: 10, fontSize: 13, opacity: 0.8 }}>
+                  Items subtotal (computed): <strong>{formatGBP(itemsSubtotal)}</strong>
+                </div>
               </div>
             </div>
 
@@ -256,6 +296,14 @@ const AdminOrderDetailPage: NextPage = () => {
 
               <div style={{ marginTop: 12, fontSize: 12, opacity: 0.7 }}>Postcode</div>
               <div style={{ marginTop: 6, opacity: 0.95, fontWeight: 800 }}>{order.postcode || "—"}</div>
+
+              <div style={{ marginTop: 12, fontSize: 12, opacity: 0.7 }}>Payment details</div>
+              <div style={{ marginTop: 6, fontWeight: 900 }}>
+                {paymentLabel(order.paymentMethod)} • {String(order.paymentStatus || "").toUpperCase()}
+              </div>
+              <div style={{ marginTop: 4, opacity: 0.85, fontSize: 13 }}>
+                {order.paidAt ? `Paid at: ${formatDate(order.paidAt)}` : "Paid at: —"}
+              </div>
             </div>
           </div>
 
@@ -263,9 +311,10 @@ const AdminOrderDetailPage: NextPage = () => {
             <div style={{ padding: 12, background: "#fafafa", fontWeight: 700 }}>Items</div>
 
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead style={{ background: "#fafafa" }}>
-                <tr>
+              <thead>
+                <tr style={{ background: "white" }}>
                   <th style={th}>Item</th>
+                  <th style={th}>Product ID</th>
                   <th style={thRight}>Qty</th>
                   <th style={thRight}>Unit</th>
                   <th style={thRight}>Line</th>
@@ -273,18 +322,33 @@ const AdminOrderDetailPage: NextPage = () => {
               </thead>
               <tbody>
                 {items.map((it) => {
-                  const line = (it.pricePence ?? 0) * (it.quantity ?? 0);
+                  const line = (it.pricePence || 0) * (it.quantity || 0);
                   return (
                     <tr key={it.id} style={{ borderTop: "1px solid #eee" }}>
-                      <td style={td}>{it.name}</td>
-                      <td style={tdRight}>{it.quantity}</td>
+                      <td style={td}>{it.name || "—"}</td>
+                      <td style={{ ...td, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", opacity: 0.85 }}>
+                        {it.productId || "—"}
+                      </td>
+                      <td style={tdRight}>{it.quantity ?? 0}</td>
                       <td style={tdRight}>{formatGBP(it.pricePence)}</td>
                       <td style={tdRight}>{formatGBP(line)}</td>
                     </tr>
                   );
                 })}
+
+                {!items.length && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 14, textAlign: "center", opacity: 0.7 }}>
+                      No items
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
+          </div>
+
+          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
+            Current status: <strong>{normStatus(order.status)}</strong>
           </div>
         </>
       )}
@@ -292,7 +356,17 @@ const AdminOrderDetailPage: NextPage = () => {
   );
 };
 
-function QuickBtn({ label, onClick, disabled, danger }: { label: string; onClick: () => void; disabled?: boolean; danger?: boolean }) {
+function QuickBtn({
+  label,
+  onClick,
+  disabled,
+  danger,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+}) {
   return (
     <button
       onClick={onClick}
@@ -314,8 +388,23 @@ function QuickBtn({ label, onClick, disabled, danger }: { label: string; onClick
 }
 
 const inp: React.CSSProperties = { width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd" };
-const btnPrimary: React.CSSProperties = { padding: "10px 12px", borderRadius: 10, border: "1px solid #111", background: "#111", color: "white", fontWeight: 900, cursor: "pointer" };
-const btnSecondary: React.CSSProperties = { padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", background: "white", fontWeight: 900, cursor: "pointer" };
+const btnPrimary: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid #111",
+  background: "#111",
+  color: "white",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+const btnSecondary: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid #ddd",
+  background: "white",
+  fontWeight: 900,
+  cursor: "pointer",
+};
 
 const th: React.CSSProperties = { textAlign: "left", padding: "12px 12px", fontSize: 12, opacity: 0.7 };
 const td: React.CSSProperties = { padding: "12px 12px", verticalAlign: "top" };
