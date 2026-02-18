@@ -4,21 +4,18 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
-function formatPence(pence: number) {
-  return `£${(Number(pence) / 100).toFixed(2)}`;
+function money(pence: number) {
+  return `£${(pence / 100).toFixed(2)}`;
 }
 
-function norm(s: unknown) {
-  return String(s ?? "").trim().toUpperCase();
-}
-
-function paymentLabel(method: string) {
-  const m = norm(method);
+function paymentLabel(method?: string) {
+  if (!method) return "—";
+  const m = method.toUpperCase();
   if (m === "MOLLIE") return "CARD";
-  return m || "—";
+  return m;
 }
 
-function paymentIcon(method: string) {
+function paymentIcon(method?: string) {
   const m = paymentLabel(method);
   if (m === "CARD") return "💳";
   if (m === "BACS") return "🏦";
@@ -26,123 +23,75 @@ function paymentIcon(method: string) {
   return "💷";
 }
 
-function paymentColours(method: string, status: string) {
-  const m = norm(method);
-  const s = norm(status);
+function paymentPillClasses(paymentStatus?: string) {
+  const s = (paymentStatus || "").toUpperCase();
 
-  if (s === "PAID") return { bg: "#e8f7ee", fg: "#1f7a4c", border: "#b7ebce" };
-  if (s === "PENDING") return { bg: "#fff4e5", fg: "#b54708", border: "#fcd9bd" };
-  if (s === "FAILED") return { bg: "#fdecec", fg: "#b42318", border: "#f5c2c0" };
-  if (s === "EXPIRED") return { bg: "#fff0e5", fg: "#9a3412", border: "#fed7aa" };
-  if (s === "CANCELED" || s === "CANCELLED")
-    return { bg: "#f4f4f5", fg: "#3f3f46", border: "#e4e4e7" };
+  if (s === "PAID") return "bg-green-50 text-green-700 border-green-200";
+  if (s === "FAILED") return "bg-red-50 text-red-700 border-red-200";
+  if (s === "EXPIRED") return "bg-orange-50 text-orange-700 border-orange-200";
+  if (s === "PENDING") return "bg-yellow-50 text-yellow-700 border-yellow-200";
+  if (s === "CANCELED") return "bg-gray-100 text-gray-600 border-gray-200";
 
-  if (s === "UNPAID") {
-    if (m === "BACS") return { bg: "#e8f3ff", fg: "#1e40af", border: "#bfdbfe" };
-    if (m === "CASH") return { bg: "#f3f4f6", fg: "#111827", border: "#d1d5db" };
-    if (m === "MOLLIE") return { bg: "#fff4e5", fg: "#b54708", border: "#fcd9bd" };
-  }
-
-  return { bg: "#f3f4f6", fg: "#444", border: "#e5e7eb" };
+  return "bg-gray-50 text-gray-600 border-gray-200";
 }
 
-function PaymentPill({ method, status }: { method: string; status: string }) {
-  const c = paymentColours(method, status);
-  const label = paymentLabel(method);
-  const icon = paymentIcon(method);
+/**
+ * Bulletproof row highlighting (NO Tailwind scanning required)
+ * Returns inline bg + left stripe colours.
+ */
+function rowTone(o: any, isSelected: boolean) {
+  const status = String(o.status || "").toUpperCase();
+  const pay = String(o.paymentStatus || "").toUpperCase();
 
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "6px 10px",
-        borderRadius: 999,
-        fontSize: 12,
-        fontWeight: 900,
-        background: c.bg,
-        color: c.fg,
-        border: `1px solid ${c.border}`,
-        letterSpacing: 0.3,
-        whiteSpace: "nowrap",
-      }}
-      title={`${label} • ${norm(status) || "—"}`}
-    >
-      <span aria-hidden>{icon}</span>
-      {label} • {norm(status) || "—"}
-    </span>
-  );
-}
+  // Selected (always visible)
+  if (isSelected) return { bg: "#f5f3ff", left: "#c4b5fd" }; // purple-50 / purple-300
 
-function rowTint(paymentStatus?: string) {
-  const s = norm(paymentStatus);
-  if (s === "PAID") return "bg-emerald-50";
-  if (s === "PENDING") return "bg-amber-50";
-  if (s === "FAILED") return "bg-red-50";
-  if (s === "EXPIRED") return "bg-orange-50";
-  if (s === "CANCELED" || s === "CANCELLED") return "bg-zinc-50";
-  return "";
-}
+  // Cancelled
+  if (status === "CANCELLED") return { bg: "#fef2f2", left: "#fecaca" }; // red-50 / red-200
 
-function rowBorder(paymentStatus?: string) {
-  const s = norm(paymentStatus);
-  if (s === "PAID") return "border-l-4 border-emerald-500";
-  if (s === "PENDING") return "border-l-4 border-amber-500";
-  if (s === "FAILED") return "border-l-4 border-red-500";
-  if (s === "EXPIRED") return "border-l-4 border-orange-500";
-  if (s === "CANCELED" || s === "CANCELLED") return "border-l-4 border-zinc-500";
-  return "border-l-4 border-slate-200";
-}
+  // Issues
+  if (pay === "FAILED" || pay === "EXPIRED" || pay === "CANCELED")
+    return { bg: "#fff7ed", left: "#fed7aa" }; // orange-50 / orange-200
 
-type PaymentFilter = "ALL" | "UNPAID" | "PAID" | "PENDING" | "ISSUES";
-type StatusFilter = "ANY" | "NEW" | "CONFIRMED" | "PAID" | "OUT-FOR-DELIVERY" | "DELIVERED";
+  // Pending
+  if (pay === "PENDING") return { bg: "#fefce8", left: "#fde68a" }; // yellow-50 / yellow-200
 
-function pillBtn(active: boolean) {
-  return `rounded-full border px-3 py-1 text-sm ${
-    active ? "bg-black text-white border-black" : "bg-white hover:bg-slate-50"
-  }`;
+  // Good (paid or delivered)
+  if (pay === "PAID" || status === "DELIVERED") return { bg: "#ecfdf5", left: "#bbf7d0" }; // green-50 / green-200
+
+  // Default
+  return { bg: "", left: "" };
 }
 
 export default function OrdersTableClient({ orders }: { orders: any[] }) {
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("ALL");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ANY");
+  const [paymentFilter, setPaymentFilter] = useState<string>("ALL");
+  const [statusFilter, setStatusFilter] = useState<string>("ANY");
+  const [hideCancelled, setHideCancelled] = useState<boolean>(true);
+  const [hideArchived, setHideArchived] = useState<boolean>(true);
 
-  const selectedCount = selectedIds.length;
-  const idsParam = useMemo(() => selectedIds.join(","), [selectedIds]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   const filteredOrders = useMemo(() => {
     return (orders || []).filter((o) => {
-      const pay = norm(o?.paymentStatus);
-      const st = norm(o?.status);
+      if (hideCancelled && o.status === "CANCELLED") return false;
+      if (hideArchived && o.archivedAt) return false;
 
-      const paymentOk =
-        paymentFilter === "ALL"
-          ? true
-          : paymentFilter === "UNPAID"
-          ? pay === "UNPAID"
-          : paymentFilter === "PAID"
-          ? pay === "PAID"
-          : paymentFilter === "PENDING"
-          ? pay === "PENDING"
-          : paymentFilter === "ISSUES"
-          ? pay === "FAILED" || pay === "EXPIRED" || pay === "CANCELED" || pay === "CANCELLED"
-          : true;
+      if (paymentFilter !== "ALL" && o.paymentStatus !== paymentFilter) return false;
 
-      const statusOk =
-        statusFilter === "ANY" ? true : st === statusFilter;
+      if (statusFilter !== "ANY") {
+        if (o.status !== statusFilter) return false;
+      }
 
-      return paymentOk && statusOk;
+      return true;
     });
-  }, [orders, paymentFilter, statusFilter]);
+  }, [orders, paymentFilter, statusFilter, hideCancelled, hideArchived]);
 
-  function toggleOne(id: string) {
+  function toggle(id: string) {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
-  function selectAll() {
-    // select all currently visible rows (filtered)
+  function selectAllShown() {
     setSelectedIds(filteredOrders.map((o) => o.id));
   }
 
@@ -150,111 +99,146 @@ export default function OrdersTableClient({ orders }: { orders: any[] }) {
     setSelectedIds([]);
   }
 
+  async function bulk(action: "cancel" | "restore" | "archive" | "unarchive") {
+    if (!selectedIds.length) return;
+
+    let reason: string | undefined;
+    if (action === "cancel") {
+      reason = prompt("Cancel reason (optional):") || "";
+    }
+
+    await fetch("/api/admin/orders/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ids: selectedIds, reason }),
+    });
+
+    window.location.reload();
+  }
+
+  const idsParam = encodeURIComponent(selectedIds.join(","));
+
   return (
-    <div>
-      {/* Top controls */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold opacity-70">Payment:</span>
-          <button
-            className={pillBtn(paymentFilter === "ALL")}
-            onClick={() => setPaymentFilter("ALL")}
-            type="button"
-          >
-            All
-          </button>
-          <button
-            className={pillBtn(paymentFilter === "UNPAID")}
-            onClick={() => setPaymentFilter("UNPAID")}
-            type="button"
-          >
-            Unpaid
-          </button>
-          <button
-            className={pillBtn(paymentFilter === "PAID")}
-            onClick={() => setPaymentFilter("PAID")}
-            type="button"
-          >
-            Paid
-          </button>
-          <button
-            className={pillBtn(paymentFilter === "PENDING")}
-            onClick={() => setPaymentFilter("PENDING")}
-            type="button"
-          >
-            Pending
-          </button>
-          <button
-            className={pillBtn(paymentFilter === "ISSUES")}
-            onClick={() => setPaymentFilter("ISSUES")}
-            type="button"
-          >
-            Issues
-          </button>
-
-          <span className="ml-2 text-sm font-semibold opacity-70">Status:</span>
-          <button className={pillBtn(statusFilter === "ANY")} onClick={() => setStatusFilter("ANY")} type="button">
-            Any
-          </button>
-          <button className={pillBtn(statusFilter === "NEW")} onClick={() => setStatusFilter("NEW")} type="button">
-            New
-          </button>
-          <button
-            className={pillBtn(statusFilter === "OUT-FOR-DELIVERY")}
-            onClick={() => setStatusFilter("OUT-FOR-DELIVERY")}
-            type="button"
-          >
-            Out for delivery
-          </button>
-          <button
-            className={pillBtn(statusFilter === "DELIVERED")}
-            onClick={() => setStatusFilter("DELIVERED")}
-            type="button"
-          >
-            Delivered
-          </button>
-
-          <span className="ml-2 text-sm opacity-60">
-            Showing <strong>{filteredOrders.length}</strong> / {orders.length}
-          </span>
+    <div className="mt-4">
+      {/* Filters */}
+      <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold">Payment:</span>
+          {["ALL", "UNPAID", "PAID", "PENDING", "FAILED", "EXPIRED", "CANCELED"].map((p) => (
+            <button
+              key={p}
+              onClick={() => setPaymentFilter(p)}
+              className={`rounded-full border px-3 py-1 ${
+                paymentFilter === p ? "bg-black text-white" : "hover:bg-gray-50"
+              }`}
+            >
+              {p === "ALL" ? "All" : p.toLowerCase()}
+            </button>
+          ))}
         </div>
 
-        {/* Selection actions */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button onClick={selectAll} className="rounded-lg border px-3 py-1" type="button">
-            Select all (shown)
-          </button>
-          <button onClick={clearSelection} className="rounded-lg border px-3 py-1" type="button">
-            Clear selection
-          </button>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold">Status:</span>
+          {["ANY", "NEW", "PAID", "OFD", "DELIVERED", "CANCELLED"].map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={`rounded-full border px-3 py-1 ${
+                statusFilter === s ? "bg-black text-white" : "hover:bg-gray-50"
+              }`}
+            >
+              {s === "ANY" ? "Any" : s.toLowerCase()}
+            </button>
+          ))}
+        </div>
 
-          <Link
-            href={`/admin/orders/selected?ids=${encodeURIComponent(idsParam)}`}
-            className={`rounded-lg px-3 py-1 ${
-              selectedCount ? "bg-purple-700 text-white" : "pointer-events-none bg-slate-200 text-slate-500"
-            }`}
-          >
-            View selected ({selectedCount})
-          </Link>
+        <label className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={hideCancelled}
+            onChange={(e) => setHideCancelled(e.target.checked)}
+          />
+          Hide cancelled
+        </label>
 
+        <label className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={hideArchived}
+            onChange={(e) => setHideArchived(e.target.checked)}
+          />
+          Hide archived
+        </label>
+
+        <div className="ml-auto text-gray-600">
+          Showing <strong>{filteredOrders.length}</strong> / {orders.length}
+        </div>
+      </div>
+
+      {/* Bulk / selection */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <button onClick={selectAllShown} className="rounded-lg border px-3 py-2 hover:bg-gray-50">
+          Select all (shown)
+        </button>
+        <button onClick={clearSelection} className="rounded-lg border px-3 py-2 hover:bg-gray-50">
+          Clear selection
+        </button>
+
+        <Link
+          href={`/admin/orders/selected?ids=${idsParam}`}
+          className={`rounded-lg border px-3 py-2 ${
+            selectedIds.length ? "hover:bg-gray-50" : "opacity-50 pointer-events-none"
+          }`}
+        >
+          View selected ({selectedIds.length})
+        </Link>
+
+        <Link
+          href={`/admin/orders/selected?ids=${idsParam}&print=1`}
+          className={`rounded-lg border px-3 py-2 ${
+            selectedIds.length ? "hover:bg-gray-50" : "opacity-50 pointer-events-none"
+          }`}
+        >
+          Print selected ({selectedIds.length})
+        </Link>
+
+        <div className="ml-auto flex gap-2">
           <button
-            className={`rounded-lg px-3 py-1 ${
-              selectedCount ? "bg-black text-white" : "pointer-events-none bg-slate-200 text-slate-500"
-            }`}
-            onClick={() => window.print()}
-            type="button"
+            disabled={!selectedIds.length}
+            onClick={() => bulk("cancel")}
+            className="rounded-lg border px-3 py-2 hover:bg-gray-50 disabled:opacity-50"
           >
-            Print selected ({selectedCount})
+            Cancel selected
+          </button>
+          <button
+            disabled={!selectedIds.length}
+            onClick={() => bulk("restore")}
+            className="rounded-lg border px-3 py-2 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Restore
+          </button>
+          <button
+            disabled={!selectedIds.length}
+            onClick={() => bulk("archive")}
+            className="rounded-lg border px-3 py-2 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Archive
+          </button>
+          <button
+            disabled={!selectedIds.length}
+            onClick={() => bulk("unarchive")}
+            className="rounded-lg border px-3 py-2 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Unarchive
           </button>
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border bg-white">
-        <table className="w-full text-left">
-          {/* ✅ Sticky header */}
-          <thead className="sticky top-0 z-10 bg-white shadow-sm">
-            <tr className="text-sm">
+      {/* Table */}
+      <div className="overflow-hidden rounded-xl border bg-white">
+        <table className="w-full">
+          <thead className="bg-gray-50 text-sm">
+            <tr>
               <th className="w-10 p-3"></th>
               <th className="p-3">Created</th>
               <th className="p-3">Status</th>
@@ -269,52 +253,79 @@ export default function OrdersTableClient({ orders }: { orders: any[] }) {
 
           <tbody>
             {filteredOrders.map((o) => {
-              const total = formatPence(o.totalPence);
-              const tint = rowTint(o.paymentStatus);
-              const border = rowBorder(o.paymentStatus);
+              const isSelected = selectedSet.has(o.id);
+              const isArchived = !!o.archivedAt;
+              const tone = rowTone(o, isSelected);
 
-              const method = String(o.checkoutPaymentMethod ?? o.paymentMethod ?? "");
-              const payStatus = String(o.paymentStatus ?? "");
+              const cellStyle = tone.bg ? ({ backgroundColor: tone.bg } as React.CSSProperties) : undefined;
 
               return (
-                <tr key={o.id} className={`border-t ${tint} ${border}`}>
-                  <td className="p-3">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.includes(o.id)}
-                      onChange={() => toggleOne(o.id)}
-                    />
+                <tr
+                  key={o.id}
+                  className={["border-t transition-colors", isArchived ? "opacity-60" : ""].join(" ")}
+                >
+                  <td
+                    className="p-3 align-top border-l-4"
+                    style={{
+                      ...(tone.bg ? { backgroundColor: tone.bg } : {}),
+                      ...(tone.left ? { borderLeftColor: tone.left } : {}),
+                    }}
+                  >
+                    <input type="checkbox" checked={isSelected} onChange={() => toggle(o.id)} />
                   </td>
 
-                  <td className="p-3">{new Date(o.createdAt).toLocaleString()}</td>
+                  <td className="p-3 align-top" style={cellStyle}>
+                    {new Date(o.createdAt).toLocaleString()}
+                  </td>
 
-                  <td className="p-3">
-                    <span className="rounded-full bg-white/70 px-3 py-1 text-sm">
-                      {o.status}
+                  <td className="p-3 align-top" style={cellStyle}>
+                    <div className="font-medium">{o.status}</div>
+                    {isArchived ? <div className="mt-1 text-xs text-gray-500">Archived</div> : null}
+                  </td>
+
+                  <td className="p-3 align-top" style={cellStyle}>
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold ${paymentPillClasses(
+                        o.paymentStatus
+                      )}`}
+                    >
+                      <span>{paymentIcon(o.checkoutPaymentMethod)}</span>
+                      <span>{paymentLabel(o.checkoutPaymentMethod)}</span>
+                      <span>•</span>
+                      <span>{String(o.paymentStatus || "").toUpperCase()}</span>
                     </span>
                   </td>
 
-                  <td className="p-3">
-                    <PaymentPill method={method} status={payStatus} />
-                  </td>
-
-                  <td className="p-3">
+                  <td className="p-3 align-top" style={cellStyle}>
                     <div className="font-semibold">{o.customerName}</div>
-                    {o.customerEmail && <div className="text-sm opacity-70">{o.customerEmail}</div>}
+                    {o.customerEmail ? <div className="text-gray-500">{o.customerEmail}</div> : null}
+                    {o.cancelReason ? (
+                      <div className="mt-1 text-xs text-gray-700">
+                        <span className="font-semibold">Reason:</span> {o.cancelReason}
+                      </div>
+                    ) : null}
                   </td>
 
-                  <td className="p-3 font-semibold">{o.postcode}</td>
+                  <td className="p-3 align-top" style={cellStyle}>
+                    <div className="font-semibold">{o.postcode}</div>
+                  </td>
 
-                  <td className="p-3 text-sm">
-                    {o.items?.slice(0, 2).map((it: any) => (
-                      <div key={it.id}>• {it.quantity} × {it.name}</div>
+                  <td className="p-3 align-top" style={cellStyle}>
+                    {(o.items || []).slice(0, 2).map((it: any) => (
+                      <div key={it.id}>
+                        • {it.quantity} × {it.name}
+                      </div>
                     ))}
-                    {o.items?.length > 2 && <div className="opacity-70">+{o.items.length - 2} more</div>}
+                    {(o.items || []).length > 2 ? (
+                      <div className="text-gray-500">+{o.items.length - 2} more</div>
+                    ) : null}
                   </td>
 
-                  <td className="p-3 text-right font-semibold">{total}</td>
+                  <td className="p-3 align-top text-right" style={cellStyle}>
+                    <span className="font-semibold">{money(o.totalPence)}</span>
+                  </td>
 
-                  <td className="p-3">
+                  <td className="p-3 align-top text-right" style={cellStyle}>
                     <Link href={`/admin/orders/${o.id}`} className="text-purple-700 underline">
                       View →
                     </Link>
@@ -323,13 +334,13 @@ export default function OrdersTableClient({ orders }: { orders: any[] }) {
               );
             })}
 
-            {!filteredOrders.length && (
+            {!filteredOrders.length ? (
               <tr>
-                <td className="p-6 text-sm opacity-70" colSpan={9}>
+                <td colSpan={9} className="p-6 text-sm text-gray-600">
                   No orders match the current filters.
                 </td>
               </tr>
-            )}
+            ) : null}
           </tbody>
         </table>
       </div>
