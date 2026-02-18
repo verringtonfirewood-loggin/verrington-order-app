@@ -6,7 +6,6 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 function mysqlUrlToAdapterConfig(databaseUrl: string) {
   const u = new URL(databaseUrl);
-
   const database = u.pathname.replace(/^\//, "");
 
   return {
@@ -25,7 +24,7 @@ function getDatabaseUrl(): string {
   // Treat your placeholder as "not configured"
   if (!v || v.includes("mysql://USER:PASSWORD@HOST:PORT/DATABASE")) {
     throw new Error(
-      "DATABASE_URL is missing/placeholder. Set a real MySQL URL in .env.local (and in Vercel env vars)."
+      "DATABASE_URL is missing/placeholder. Set a real MySQL URL in .env (for CLI) and .env.local (for dev), and in Vercel env vars."
     );
   }
 
@@ -40,7 +39,7 @@ function createPrismaClient() {
 
 /**
  * Call this inside request handlers (API routes / server actions).
- * It avoids blowing up builds by not parsing env at module import time.
+ * It avoids build-time failures by not requiring DB access at import time.
  */
 export function getPrisma(): PrismaClient {
   if (!globalForPrisma.prisma) {
@@ -48,3 +47,9 @@ export function getPrisma(): PrismaClient {
   }
   return globalForPrisma.prisma;
 }
+
+/**
+ * Default export for convenience (seed scripts, one-off scripts, etc.)
+ * This is still lazy because it calls getPrisma().
+ */
+export default getPrisma();
