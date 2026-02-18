@@ -6,6 +6,11 @@ datasource db {
   provider = "mysql"
 }
 
+/**
+ * Prisma 7: do NOT define datasource.url here.
+ * Datasource configuration lives in prisma.config.ts
+ */
+
 enum CheckoutPaymentMethod {
   MOLLIE
   CASH
@@ -21,11 +26,6 @@ enum PaymentStatus {
   CANCELED
 }
 
-/**
- * Prisma 7: do NOT define datasource.url here.
- * Datasource configuration lives in prisma.config.ts
- */
-
 model OrderCounter {
   id   Int @id @default(1) // single row
   next Int @default(1)
@@ -40,7 +40,7 @@ model Order {
   customerPhone String?
   customerEmail String?
 
-  // NEW: manual address fields (optional in DB to avoid breaking existing rows)
+  // Manual address fields
   addressLine1 String?
   addressLine2 String?
   town         String?
@@ -50,15 +50,23 @@ model Order {
   preferredDay  String?
   deliveryNotes String?
 
-  // Order state
+  // ✅ KEEP STRING (avoid enum migration issues for now)
+  // Suggested values: NEW | PAID | OFD | DELIVERED | CANCELLED
   status String @default("NEW")
+
+  // ✅ Cancel feature
+  cancelledAt  DateTime?
+  cancelReason String?
+
+  // ✅ Husbandry / admin housekeeping
+  archivedAt DateTime?
 
   // Money
   subtotalPence    Int @default(0)
   deliveryFeePence Int @default(0)
   totalPence       Int @default(0)
 
-  // ✅ Friendly customer-facing reference
+  // Friendly customer-facing reference
   orderNumber String? @unique
 
   // Payment handling
@@ -70,10 +78,14 @@ model Order {
   paidAt            DateTime?
 
   // Relations
-  items OrderItem[]
+  items         OrderItem[]
+  husbandryLogs HusbandryLog[]
 
   @@index([createdAt])
   @@index([paymentStatus])
+  @@index([archivedAt])
+  @@index([status])
+  @@index([cancelledAt])
 }
 
 model OrderItem {
@@ -104,4 +116,23 @@ model Product {
   imageUrl    String?
 
   @@index([isActive, sortOrder])
+}
+
+model HusbandryLog {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  // What happened / what to remember
+  note String
+
+  // Optional: who added it (email / admin label)
+  author String?
+
+  // Optional: link to an order (so notes show on order detail)
+  orderId String?
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([orderId])
+  @@map("husbandry_logs")
 }

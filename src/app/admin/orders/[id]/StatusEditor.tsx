@@ -1,80 +1,161 @@
 // src/app/admin/orders/[id]/StatusEditor.tsx
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 
-const STATUSES = ["NEW", "CONFIRMED", "PAID", "OUT-FOR-DELIVERY", "DELIVERED"] as const;
+const STATUSES = ["NEW", "PAID", "OFD", "DELIVERED", "CANCELLED"] as const;
 
 export default function StatusEditor({
   orderId,
   initialStatus,
+  initialArchivedAt,
+  initialCancelledAt,
+  initialCancelReason,
 }: {
   orderId: string;
   initialStatus: string;
+  initialArchivedAt: string | null;
+  initialCancelledAt: string | null;
+  initialCancelReason: string | null;
 }) {
-  const router = useRouter();
   const [status, setStatus] = useState(initialStatus);
-  const [isPending, startTransition] = useTransition();
+  const [archivedAt, setArchivedAt] = useState<string | null>(initialArchivedAt);
+  const [cancelledAt, setCancelledAt] = useState<string | null>(initialCancelledAt);
+  const [cancelReason, setCancelReason] = useState<string | null>(initialCancelReason);
+
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  // Track last good status for correct rollback
-  const lastGood = useRef(initialStatus);
+  const isCancelled = useMemo(() => status === "CANCELLED" || !!cancelledAt, [status, cancelledAt]);
+  const isArchived = useMemo(() => !!archivedAt, [archivedAt]);
 
-  useEffect(() => {
-    setStatus(initialStatus);
-    lastGood.current = initialStatus;
-  }, [initialStatus]);
-
-  async function save(nextStatus: string) {
-    // optimistic update
-    setStatus(nextStatus);
+  async function patch(payload: any) {
     setSaving(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.ok) throw new Error(data?.error || "Failed to update");
 
-    const res = await fetch(`/api/admin/orders/${orderId}/status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: nextStatus }),
-    });
-
-    setSaving(false);
-
-    if (!res.ok) {
-      // rollback to last good status
-      setStatus(lastGood.current);
-      alert("Failed to update status");
-      return;
+      const o = data.order;
+      if (o?.status) setStatus(o.status);
+      setArchivedAt(o?.archivedAt ?? null);
+      setCancelledAt(o?.cancelledAt ?? null);
+      setCancelReason(o?.cancelReason ?? null);
+    } catch (e: any) {
+      setErr(e?.message || "Failed to update");
+    } finally {
+      setSaving(false);
     }
+  }
 
-    // success: update rollback point
-    lastGood.current = nextStatus;
+  async function updateStatus(next: string) {
+    await patch({ status: next });
+  }
 
-    // refresh server-rendered pages
-    startTransition(() => router.refresh());
+  async function cancelOrder() {
+    const reason = window.prompt("Cancel reason (optional):", cancelReason ?? "") ?? "";
+    await patch({ status: "CANCELLED", cancelReason: reason });
+  }
+
+  async function reopenOrder() {
+    // clears cancel fields and sets status back to NEW (unless server changes it)
+    await patch({ clearCancel: true });
+  }
+
+  async function archiveOrder() {
+    await patch({ archived: true });
+  }
+
+  async function unarchiveOrder() {
+    await patch({ unarchive: true });
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <select
-        value={status}
-        disabled={saving || isPending}
-        onChange={(e) => save(e.target.value)}
-        className="rounded border px-2 py-1"
-      >
-        {STATUSES.map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-      </select>
+    <section className="mt-6 rounded-xl border bg-white p-4 shadow-sm">
+      <h2 className="text-xl font-semibold">Admin actions</h2>
 
-      <span className="text-sm opacity-70">
-        {saving || isPending ? "Saving…" : ""}
-      </span>
+      <div className="mt-4 flex flex-col gap-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <label className="text-sm font-medium text-gray-700">Status</label>
+          <select
+            className="w-full rounded-lg border p-2 sm:max-w-xs"
+            value={status}
+            onChange={(e) => updateStatus(e.target.value)}
+            disabled={saving}
+          >
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
 
-      <span className="rounded-full bg-slate-100 px-3 py-1 text-sm">
-        {status}
-      </span>
-    </div>
+          <div className="text-sm text-gray-600">
+            {isCancelled ? "Cancelled" : "Active"}
+            {isArchived ? " • Archived" : ""}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {!isCancelled && (
+            <button
+              onClick={cancelOrder}
+              disabled={saving}
+              className="rounded-lg border border-red-300 bg-red-50 px-4 py-2 font-medium text-red-700 disabled:opacity-60"
+            >
+              Cancel order
+            </button>
+          )}
+
+          {isCancelled && (
+            <button
+              onClick={reopenOrder}
+              disabled={saving}
+              className="rounded-lg border px-4 py-2 font-medium disabled:opacity-60"
+            >
+              Re-open (clear cancel)
+            </button>
+          )}
+
+          {!isArchived && (
+            <button
+              onClick={archiveOrder}
+              disabled={saving}
+              className="rounded-lg border px-4 py-2 font-medium disabled:opacity-60"
+            >
+              Archive
+            </button>
+          )}
+
+          {isArchived && (
+            <button
+              onClick={unarchiveOrder}
+              disabled={saving}
+              className="rounded-lg border px-4 py-2 font-medium disabled:opacity-60"
+            >
+              Unarchive
+            </button>
+          )}
+        </div>
+
+        {isCancelled && (cancelReason || cancelledAt) && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            <div className="font-semibold">Cancelled</div>
+            {cancelReason ? <div className="mt-1">Reason: {cancelReason}</div> : null}
+          </div>
+        )}
+
+        {err && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {err}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
