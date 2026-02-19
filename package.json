@@ -2,28 +2,38 @@
   "name": "verrington-order-app",
   "version": "0.1.0",
   "private": true,
-  "scripts": {
-    "dev": "next dev --webpack",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint",
-    "postinstall": "prisma generate",
-    "vercel-build": "prisma migrate deploy && prisma generate && next build",
-    "db:seed": "prisma db seed"
-  },
+
+"scripts": {
+  "dev": "next dev --webpack",
+  "dev:webpack": "next dev --webpack",
+  "dev:turbo": "next dev --turbopack",
+
+  "build": "next build",
+  "start": "next start",
+  "lint": "eslint",
+
+  "postinstall": "prisma generate",
+
+  "vercel-build": "prisma migrate deploy && prisma generate && next build",
+  "db:seed": "prisma db seed"
+},
+
   "prisma": {
     "seed": "node prisma/seed-runner.cjs"
   },
+
   "dependencies": {
     "@mollie/api-client": "^4.4.0",
     "@prisma/adapter-mariadb": "^7.4.0",
     "@prisma/client": "^7.4.0",
+    "@prisma/extension-accelerate": "^2.0.2",
     "mariadb": "^3.4.5",
     "next": "16.1.6",
     "nodemailer": "^8.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
+
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
