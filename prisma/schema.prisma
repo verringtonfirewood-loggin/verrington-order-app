@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -29,6 +31,8 @@ enum PaymentStatus {
 model OrderCounter {
   id   Int @id @default(1) // single row
   next Int @default(1)
+
+  @@map("OrderCounter")
 }
 
 model Order {
@@ -86,8 +90,9 @@ model Order {
   @@index([archivedAt])
   @@index([status])
   @@index([cancelledAt])
-  
-  @@map("orders")
+
+  // ✅ Match the existing Railway table name
+  @@map("Order")
 }
 
 model OrderItem {
@@ -98,11 +103,13 @@ model OrderItem {
   name           String
   pricePence     Int
   quantity       Int
-  lineTotalPence Int    @default(0)
+  lineTotalPence Int @default(0)
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
+
+  @@map("OrderItem")
 }
 
 model Product {
@@ -118,6 +125,8 @@ model Product {
   imageUrl    String?
 
   @@index([isActive, sortOrder])
+
+  @@map("Product")
 }
 
 model HusbandryLog {
@@ -132,9 +141,11 @@ model HusbandryLog {
 
   // Optional: link to an order (so notes show on order detail)
   orderId String?
-  order   Order?  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order   Order? @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([createdAt])
   @@index([orderId])
+
+  // ✅ This already matches the existing table
   @@map("husbandry_logs")
 }
