@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { headers } from "next/headers";
+import { getPrisma } from "@/lib/prisma";
 
 type Product = {
   id: string;
@@ -14,14 +14,6 @@ type Product = {
 function formatGBPFromPence(pence: number) {
   const gbp = (pence || 0) / 100;
   return `£${gbp.toFixed(2)}`;
-}
-
-async function getBaseUrlFromHeaders() {
-  const h = await headers();
-  const host = h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  if (!host) return null;
-  return `${proto}://${host}`;
 }
 
 // --- Configure your comparison + badges here ---
@@ -59,22 +51,34 @@ function bulletsCopy(name: string) {
   return ["Local delivery", "Reliable service", "Easy ordering"];
 }
 
-export default async function PricesPage() {
-  const baseUrl = await getBaseUrlFromHeaders();
-  const url = baseUrl ? `${baseUrl}/api/products` : null;
+async function loadProducts(): Promise<Product[]> {
+  const prisma = getPrisma();
 
+  // Pull directly from DB (no internal fetch)
+  const rows = await prisma.product.findMany({
+    where: { isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      pricePence: true,
+      imageUrl: true,
+      imageAlt: true,
+      sortOrder: true,
+    },
+  });
+
+  return rows;
+}
+
+export default async function PricesPage() {
   let products: Product[] = [];
 
   try {
-    if (url) {
-      const res = await fetch(url, { cache: "no-store" });
-      const data = await res.json().catch(() => null);
-      if (res.ok && data?.ok && Array.isArray(data.products)) {
-        products = data.products;
-      }
-    }
+    products = await loadProducts();
   } catch {
-    // graceful fallback
+    // graceful fallback (keeps UI message)
   }
 
   // Prefer sortOrder if present, otherwise keep API order
@@ -103,10 +107,7 @@ export default async function PricesPage() {
     null;
 
   // Build comparison list: prefer Net/Bag/IBC if found, else just show everything
-  const comparison =
-    net || bag || ibc
-      ? [net, bag, ibc].filter(Boolean) as Product[]
-      : sorted;
+  const comparison = net || bag || ibc ? ([net, bag, ibc].filter(Boolean) as Product[]) : sorted;
 
   return (
     <main className="min-h-screen bg-[var(--vf-bg)] text-[var(--vf-text)]">
@@ -119,10 +120,7 @@ export default async function PricesPage() {
         {/* Comparison layout */}
         <div className="mt-8 grid gap-4 lg:grid-cols-3">
           {comparison.length === 0 ? (
-            <div
-              className="rounded-3xl border p-6 text-sm text-[var(--vf-muted)]"
-              style={{ background: "var(--vf-surface)" }}
-            >
+            <div className="rounded-3xl border p-6 text-sm text-[var(--vf-muted)]" style={{ background: "var(--vf-surface)" }}>
               Prices are temporarily unavailable. Please visit the order page.
             </div>
           ) : (
@@ -135,7 +133,6 @@ export default async function PricesPage() {
                   className="relative rounded-3xl border p-6 shadow-sm"
                   style={{
                     background: "var(--vf-surface)",
-                    // subtle emphasis for most popular without hardcoding colors
                     boxShadow: isPopular ? "0 18px 50px rgba(0,0,0,0.10)" : undefined,
                     transform: isPopular ? "translateY(-2px)" : undefined,
                   }}
@@ -157,9 +154,7 @@ export default async function PricesPage() {
 
                   <div className="text-lg font-extrabold">{p.name}</div>
 
-                  <div className="mt-2 text-3xl font-extrabold">
-                    {formatGBPFromPence(p.pricePence)}
-                  </div>
+                  <div className="mt-2 text-3xl font-extrabold">{formatGBPFromPence(p.pricePence)}</div>
 
                   {p.description ? (
                     <p className="mt-2 text-sm text-[var(--vf-muted)]">{p.description}</p>
@@ -188,10 +183,7 @@ export default async function PricesPage() {
                       Order
                     </Link>
 
-                    <Link
-                      href="/delivery"
-                      className="rounded-2xl border px-5 py-3 text-sm font-semibold hover:bg-black/5"
-                    >
+                    <Link href="/delivery" className="rounded-2xl border px-5 py-3 text-sm font-semibold hover:bg-black/5">
                       Delivery
                     </Link>
                   </div>
@@ -207,10 +199,7 @@ export default async function PricesPage() {
 
         {/* Optional: quick “at a glance” table */}
         {comparison.length >= 2 ? (
-          <div
-            className="mt-8 rounded-3xl border p-6"
-            style={{ background: "var(--vf-surface)" }}
-          >
+          <div className="mt-8 rounded-3xl border p-6" style={{ background: "var(--vf-surface)" }}>
             <h2 className="text-lg font-extrabold">At a glance</h2>
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-sm">
@@ -230,12 +219,8 @@ export default async function PricesPage() {
                           <span className="ml-2 text-xs font-extrabold">⭐</span>
                         ) : null}
                       </td>
-                      <td className="py-3 pr-4 font-extrabold">
-                        {formatGBPFromPence(p.pricePence)}
-                      </td>
-                      <td className="py-3 pr-4 text-[var(--vf-muted)]">
-                        {bestForCopy(p.name)}
-                      </td>
+                      <td className="py-3 pr-4 font-extrabold">{formatGBPFromPence(p.pricePence)}</td>
+                      <td className="py-3 pr-4 text-[var(--vf-muted)]">{bestForCopy(p.name)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -253,10 +238,7 @@ export default async function PricesPage() {
               >
                 Order now
               </Link>
-              <Link
-                href="/"
-                className="rounded-2xl border px-6 py-3 text-sm font-semibold hover:bg-black/5"
-              >
+              <Link href="/" className="rounded-2xl border px-6 py-3 text-sm font-semibold hover:bg-black/5">
                 Back home
               </Link>
             </div>
