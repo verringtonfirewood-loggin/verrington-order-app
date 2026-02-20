@@ -62,6 +62,37 @@ type PageProps = {
   params: Promise<{ id?: string }>;
 };
 
+function formatOrderRef(order: { id: string; orderNumber: unknown }) {
+  const raw = order.orderNumber;
+
+  // Already formatted like "VF001"
+  if (typeof raw === "string" && /^VF\d{3,}$/i.test(raw.trim())) {
+    return raw.trim().toUpperCase();
+  }
+
+  // Number or numeric string → VF + pad
+  const n =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string" && raw.trim() !== "" && /^\d+$/.test(raw.trim())
+        ? Number(raw.trim())
+        : null;
+
+  if (typeof n === "number" && Number.isFinite(n) && n >= 0) {
+    const padded = String(Math.trunc(n)).padStart(3, "0");
+    return `VF${padded}`;
+  }
+
+  // Fallback: try to find digits in id, else use id short
+  const digits = String(order.id).match(/\d+/)?.[0];
+  if (digits) {
+    const padded = digits.slice(-3).padStart(3, "0");
+    return `VF${padded}`;
+  }
+
+  return order.id.slice(0, 8);
+}
+
 export default async function AdminOrderDetailPage({ params }: PageProps) {
   const { id } = await params;
 
@@ -69,12 +100,14 @@ export default async function AdminOrderDetailPage({ params }: PageProps) {
     notFound();
   }
 
-const order: OrderDetail | null = await prisma.order.findUnique({
-  where: { id },
-  select: orderSelect,
-});
+  const order: OrderDetail | null = await prisma.order.findUnique({
+    where: { id },
+    select: orderSelect,
+  });
 
   if (!order) notFound();
+
+  const orderRef = formatOrderRef({ id: order.id, orderNumber: order.orderNumber });
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
@@ -84,7 +117,7 @@ const order: OrderDetail | null = await prisma.order.findUnique({
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Order {order.orderNumber ?? order.id}</h1>
+          <h1 className="text-2xl font-bold">Order {orderRef}</h1>
           <p className="mt-1 text-sm text-zinc-600">
             Status: <span className="font-semibold">{order.status}</span>
           </p>
@@ -92,12 +125,12 @@ const order: OrderDetail | null = await prisma.order.findUnique({
 
         <div className="mt-2 sm:mt-0">
           <StatusEditor
-  		orderId={order.id}
-  		initialStatus={order.status}
-  		initialArchivedAt={order.archivedAt ? order.archivedAt.toISOString() : null}
- 		 initialCancelledAt={order.cancelledAt ? order.cancelledAt.toISOString() : null}
- 		 initialCancelReason={order.cancelReason ?? null}
-		/>
+            orderId={order.id}
+            initialStatus={order.status}
+            initialArchivedAt={order.archivedAt ? order.archivedAt.toISOString() : null}
+            initialCancelledAt={order.cancelledAt ? order.cancelledAt.toISOString() : null}
+            initialCancelReason={order.cancelReason ?? null}
+          />
         </div>
       </div>
 
@@ -170,9 +203,7 @@ const order: OrderDetail | null = await prisma.order.findUnique({
                     <td className="px-3 py-2 font-medium">{it.name}</td>
                     <td className="px-3 py-2 text-right">{it.quantity}</td>
                     <td className="px-3 py-2 text-right">£{(it.pricePence / 100).toFixed(2)}</td>
-                    <td className="px-3 py-2 text-right">
-                      £{(it.lineTotalPence / 100).toFixed(2)}
-                    </td>
+                    <td className="px-3 py-2 text-right">£{(it.lineTotalPence / 100).toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -206,12 +237,11 @@ const order: OrderDetail | null = await prisma.order.findUnique({
               <span className="text-zinc-500">Status:</span>{" "}
               <span className="font-medium">{String(order.paymentStatus ?? "—")}</span>
             </div>
+
             {order.paidAt && (
               <div>
                 <span className="text-zinc-500">Paid at:</span>{" "}
-                <span className="font-medium">
-                  {new Date(order.paidAt).toLocaleString("en-GB")}
-                </span>
+                <span className="font-medium">{new Date(order.paidAt).toLocaleString("en-GB")}</span>
               </div>
             )}
           </div>

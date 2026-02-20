@@ -1,4 +1,3 @@
-// src/app/admin/orders/OrdersTableClient.tsx
 "use client";
 
 import Link from "next/link";
@@ -35,39 +34,53 @@ function paymentPillClasses(paymentStatus?: string) {
   return "bg-gray-50 text-gray-600 border-gray-200";
 }
 
-/**
- * Bulletproof row highlighting (NO Tailwind scanning required)
- * Returns inline bg + left stripe colours.
- */
 function rowTone(o: any, isSelected: boolean) {
   const status = String(o.status || "").toUpperCase();
   const pay = String(o.paymentStatus || "").toUpperCase();
 
-  // Selected (always visible)
-  if (isSelected) return { bg: "#f5f3ff", left: "#c4b5fd" }; // purple-50 / purple-300
-
-  // Cancelled
-  if (status === "CANCELLED") return { bg: "#fef2f2", left: "#fecaca" }; // red-50 / red-200
-
-  // Issues
+  if (isSelected) return { bg: "#f5f3ff", left: "#c4b5fd" };
+  if (status === "CANCELLED") return { bg: "#fef2f2", left: "#fecaca" };
   if (pay === "FAILED" || pay === "EXPIRED" || pay === "CANCELED")
-    return { bg: "#fff7ed", left: "#fed7aa" }; // orange-50 / orange-200
+    return { bg: "#fff7ed", left: "#fed7aa" };
+  if (pay === "PENDING") return { bg: "#fefce8", left: "#fde68a" };
+  if (pay === "PAID" || status === "DELIVERED")
+    return { bg: "#ecfdf5", left: "#bbf7d0" };
 
-  // Pending
-  if (pay === "PENDING") return { bg: "#fefce8", left: "#fde68a" }; // yellow-50 / yellow-200
-
-  // Good (paid or delivered)
-  if (pay === "PAID" || status === "DELIVERED") return { bg: "#ecfdf5", left: "#bbf7d0" }; // green-50 / green-200
-
-  // Default
   return { bg: "", left: "" };
+}
+
+function formatOrderRef(o: any) {
+  const raw = o?.orderNumber;
+
+  if (typeof raw === "string" && /^VF\d{3,}$/i.test(raw.trim())) {
+    return raw.trim().toUpperCase();
+  }
+
+  const n =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string" && /^\d+$/.test(raw.trim())
+        ? Number(raw.trim())
+        : null;
+
+  if (typeof n === "number" && Number.isFinite(n)) {
+    return `VF${String(Math.trunc(n)).padStart(3, "0")}`;
+  }
+
+  const id = String(o?.id || "");
+  const digits = id.match(/\d+/)?.[0];
+  if (digits) {
+    return `VF${digits.slice(-3).padStart(3, "0")}`;
+  }
+
+  return id.slice(0, 8);
 }
 
 export default function OrdersTableClient({ orders }: { orders: any[] }) {
   const [paymentFilter, setPaymentFilter] = useState<string>("ALL");
   const [statusFilter, setStatusFilter] = useState<string>("ANY");
-  const [hideCancelled, setHideCancelled] = useState<boolean>(true);
-  const [hideArchived, setHideArchived] = useState<boolean>(true);
+  const [hideCancelled, setHideCancelled] = useState(true);
+  const [hideArchived, setHideArchived] = useState(true);
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -76,19 +89,16 @@ export default function OrdersTableClient({ orders }: { orders: any[] }) {
     return (orders || []).filter((o) => {
       if (hideCancelled && o.status === "CANCELLED") return false;
       if (hideArchived && o.archivedAt) return false;
-
       if (paymentFilter !== "ALL" && o.paymentStatus !== paymentFilter) return false;
-
-      if (statusFilter !== "ANY") {
-        if (o.status !== statusFilter) return false;
-      }
-
+      if (statusFilter !== "ANY" && o.status !== statusFilter) return false;
       return true;
     });
   }, [orders, paymentFilter, statusFilter, hideCancelled, hideArchived]);
 
   function toggle(id: string) {
-    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   }
 
   function selectAllShown() {
@@ -99,147 +109,16 @@ export default function OrdersTableClient({ orders }: { orders: any[] }) {
     setSelectedIds([]);
   }
 
-  async function bulk(action: "cancel" | "restore" | "archive" | "unarchive") {
-    if (!selectedIds.length) return;
-
-    let reason: string | undefined;
-    if (action === "cancel") {
-      reason = prompt("Cancel reason (optional):") || "";
-    }
-
-    await fetch("/api/admin/orders/bulk", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, ids: selectedIds, reason }),
-    });
-
-    window.location.reload();
-  }
-
   const idsParam = encodeURIComponent(selectedIds.join(","));
 
   return (
     <div className="mt-4">
-      {/* Filters */}
-      <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold">Payment:</span>
-          {["ALL", "UNPAID", "PAID", "PENDING", "FAILED", "EXPIRED", "CANCELED"].map((p) => (
-            <button
-              key={p}
-              onClick={() => setPaymentFilter(p)}
-              className={`rounded-full border px-3 py-1 ${
-                paymentFilter === p ? "bg-black text-white" : "hover:bg-gray-50"
-              }`}
-            >
-              {p === "ALL" ? "All" : p.toLowerCase()}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="font-semibold">Status:</span>
-          {["ANY", "NEW", "PAID", "OFD", "DELIVERED", "CANCELLED"].map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={`rounded-full border px-3 py-1 ${
-                statusFilter === s ? "bg-black text-white" : "hover:bg-gray-50"
-              }`}
-            >
-              {s === "ANY" ? "Any" : s.toLowerCase()}
-            </button>
-          ))}
-        </div>
-
-        <label className="flex items-center gap-1">
-          <input
-            type="checkbox"
-            checked={hideCancelled}
-            onChange={(e) => setHideCancelled(e.target.checked)}
-          />
-          Hide cancelled
-        </label>
-
-        <label className="flex items-center gap-1">
-          <input
-            type="checkbox"
-            checked={hideArchived}
-            onChange={(e) => setHideArchived(e.target.checked)}
-          />
-          Hide archived
-        </label>
-
-        <div className="ml-auto text-gray-600">
-          Showing <strong>{filteredOrders.length}</strong> / {orders.length}
-        </div>
-      </div>
-
-      {/* Bulk / selection */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <button onClick={selectAllShown} className="rounded-lg border px-3 py-2 hover:bg-gray-50">
-          Select all (shown)
-        </button>
-        <button onClick={clearSelection} className="rounded-lg border px-3 py-2 hover:bg-gray-50">
-          Clear selection
-        </button>
-
-        <Link
-          href={`/admin/orders/selected?ids=${idsParam}`}
-          className={`rounded-lg border px-3 py-2 ${
-            selectedIds.length ? "hover:bg-gray-50" : "opacity-50 pointer-events-none"
-          }`}
-        >
-          View selected ({selectedIds.length})
-        </Link>
-
-        <Link
-          href={`/admin/orders/selected?ids=${idsParam}&print=1`}
-          className={`rounded-lg border px-3 py-2 ${
-            selectedIds.length ? "hover:bg-gray-50" : "opacity-50 pointer-events-none"
-          }`}
-        >
-          Print selected ({selectedIds.length})
-        </Link>
-
-        <div className="ml-auto flex gap-2">
-          <button
-            disabled={!selectedIds.length}
-            onClick={() => bulk("cancel")}
-            className="rounded-lg border px-3 py-2 hover:bg-gray-50 disabled:opacity-50"
-          >
-            Cancel selected
-          </button>
-          <button
-            disabled={!selectedIds.length}
-            onClick={() => bulk("restore")}
-            className="rounded-lg border px-3 py-2 hover:bg-gray-50 disabled:opacity-50"
-          >
-            Restore
-          </button>
-          <button
-            disabled={!selectedIds.length}
-            onClick={() => bulk("archive")}
-            className="rounded-lg border px-3 py-2 hover:bg-gray-50 disabled:opacity-50"
-          >
-            Archive
-          </button>
-          <button
-            disabled={!selectedIds.length}
-            onClick={() => bulk("unarchive")}
-            className="rounded-lg border px-3 py-2 hover:bg-gray-50 disabled:opacity-50"
-          >
-            Unarchive
-          </button>
-        </div>
-      </div>
-
-      {/* Table */}
       <div className="overflow-hidden rounded-xl border bg-white">
         <table className="w-full">
           <thead className="bg-gray-50 text-sm">
             <tr>
               <th className="w-10 p-3"></th>
+              <th className="p-3">Order No.</th>
               <th className="p-3">Created</th>
               <th className="p-3">Status</th>
               <th className="p-3">Payment</th>
@@ -254,79 +133,76 @@ export default function OrdersTableClient({ orders }: { orders: any[] }) {
           <tbody>
             {filteredOrders.map((o) => {
               const isSelected = selectedSet.has(o.id);
-              const isArchived = !!o.archivedAt;
               const tone = rowTone(o, isSelected);
+              const cellStyle = tone.bg
+                ? ({ backgroundColor: tone.bg } as React.CSSProperties)
+                : undefined;
 
-              const cellStyle = tone.bg ? ({ backgroundColor: tone.bg } as React.CSSProperties) : undefined;
+              const orderRef = formatOrderRef(o);
 
               return (
-                <tr
-                  key={o.id}
-                  className={["border-t transition-colors", isArchived ? "opacity-60" : ""].join(" ")}
-                >
+                <tr key={o.id} className="border-t">
                   <td
-                    className="p-3 align-top border-l-4"
+                    className="p-3 border-l-4"
                     style={{
                       ...(tone.bg ? { backgroundColor: tone.bg } : {}),
                       ...(tone.left ? { borderLeftColor: tone.left } : {}),
                     }}
                   >
-                    <input type="checkbox" checked={isSelected} onChange={() => toggle(o.id)} />
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggle(o.id)}
+                    />
                   </td>
 
-                  <td className="p-3 align-top" style={cellStyle}>
+                  {/* ✅ CLICKABLE ORDER NUMBER */}
+                  <td className="p-3" style={cellStyle}>
+                    <Link
+                      href={`/admin/orders/${o.id}`}
+                      className="font-semibold text-purple-700 hover:underline"
+                    >
+                      {orderRef}
+                    </Link>
+                  </td>
+
+                  <td className="p-3" style={cellStyle}>
                     {new Date(o.createdAt).toLocaleString()}
                   </td>
 
-                  <td className="p-3 align-top" style={cellStyle}>
-                    <div className="font-medium">{o.status}</div>
-                    {isArchived ? <div className="mt-1 text-xs text-gray-500">Archived</div> : null}
+                  <td className="p-3" style={cellStyle}>
+                    {o.status}
                   </td>
 
-                  <td className="p-3 align-top" style={cellStyle}>
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold ${paymentPillClasses(
-                        o.paymentStatus
-                      )}`}
-                    >
-                      <span>{paymentIcon(o.checkoutPaymentMethod)}</span>
-                      <span>{paymentLabel(o.checkoutPaymentMethod)}</span>
-                      <span>•</span>
-                      <span>{String(o.paymentStatus || "").toUpperCase()}</span>
-                    </span>
+                  <td className="p-3" style={cellStyle}>
+                    {String(o.paymentStatus || "").toUpperCase()}
                   </td>
 
-                  <td className="p-3 align-top" style={cellStyle}>
+                  <td className="p-3" style={cellStyle}>
                     <div className="font-semibold">{o.customerName}</div>
-                    {o.customerEmail ? <div className="text-gray-500">{o.customerEmail}</div> : null}
-                    {o.cancelReason ? (
-                      <div className="mt-1 text-xs text-gray-700">
-                        <span className="font-semibold">Reason:</span> {o.cancelReason}
-                      </div>
-                    ) : null}
                   </td>
 
-                  <td className="p-3 align-top" style={cellStyle}>
-                    <div className="font-semibold">{o.postcode}</div>
+                  <td className="p-3" style={cellStyle}>
+                    {o.postcode}
                   </td>
 
-                  <td className="p-3 align-top" style={cellStyle}>
+                  <td className="p-3" style={cellStyle}>
                     {(o.items || []).slice(0, 2).map((it: any) => (
                       <div key={it.id}>
                         • {it.quantity} × {it.name}
                       </div>
                     ))}
-                    {(o.items || []).length > 2 ? (
-                      <div className="text-gray-500">+{o.items.length - 2} more</div>
-                    ) : null}
                   </td>
 
-                  <td className="p-3 align-top text-right" style={cellStyle}>
-                    <span className="font-semibold">{money(o.totalPence)}</span>
+                  <td className="p-3 text-right" style={cellStyle}>
+                    {money(o.totalPence)}
                   </td>
 
-                  <td className="p-3 align-top text-right" style={cellStyle}>
-                    <Link href={`/admin/orders/${o.id}`} className="text-purple-700 underline">
+                  <td className="p-3 text-right" style={cellStyle}>
+                    <Link
+                      href={`/admin/orders/${o.id}`}
+                      className="text-purple-700 underline"
+                    >
                       View →
                     </Link>
                   </td>
@@ -334,13 +210,13 @@ export default function OrdersTableClient({ orders }: { orders: any[] }) {
               );
             })}
 
-            {!filteredOrders.length ? (
+            {!filteredOrders.length && (
               <tr>
-                <td colSpan={9} className="p-6 text-sm text-gray-600">
+                <td colSpan={10} className="p-6 text-sm text-gray-600">
                   No orders match the current filters.
                 </td>
               </tr>
-            ) : null}
+            )}
           </tbody>
         </table>
       </div>

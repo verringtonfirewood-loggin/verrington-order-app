@@ -86,6 +86,8 @@ model Order {
   @@index([archivedAt])
   @@index([status])
   @@index([cancelledAt])
+  
+  @@map("orders")
 }
 
 model OrderItem {
