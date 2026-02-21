@@ -1,4 +1,6 @@
+// src/lib/mailer.ts
 import nodemailer from "nodemailer";
+import { getOrderRef } from "@/lib/orderRef";
 
 const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
 const SMTP_PORT = Number(process.env.SMTP_PORT || "465");
@@ -119,13 +121,13 @@ function buildAddressLine(args: {
 
 export async function sendAdminNewOrderEmail(args: {
   orderId: string;
+  orderNumber?: string | null; // ✅ VF-friendly reference (preferred)
   createdAt?: string;
   customerName?: string;
   customerPhone?: string;
   customerEmail?: string | null;
   postcode?: string | null;
 
-  // ✅ NEW: Address fields (optional)
   addressLine1?: string | null;
   addressLine2?: string | null;
   town?: string | null;
@@ -140,15 +142,14 @@ export async function sendAdminNewOrderEmail(args: {
   const transport = getTransport();
   const appUrl = getAppBaseUrl();
 
+  const ref = getOrderRef({ id: args.orderId, orderNumber: args.orderNumber });
+
   const total =
     typeof args.totalPence === "number"
       ? `£${(args.totalPence / 100).toFixed(2)}`
       : "—";
 
-  const subject = `New order ${args.postcode ? `(${args.postcode}) ` : ""}#${args.orderId.slice(
-    0,
-    8
-  )}`;
+  const subject = `New order ${args.postcode ? `(${args.postcode}) ` : ""}${ref}`;
 
   const addressLine = buildAddressLine({
     addressLine1: args.addressLine1 ?? null,
@@ -168,6 +169,7 @@ export async function sendAdminNewOrderEmail(args: {
 
   const text = `New order received
 
+Order reference: ${ref}
 Order ID: ${args.orderId}
 Created: ${args.createdAt || "—"}
 Status: ${(args.status || "pending").toUpperCase()}
@@ -208,6 +210,7 @@ ${appUrl}/admin/orders/${args.orderId}
   const bodyHtml = `
     <div style="font-size:13px;line-height:1.6;">
       <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;">
+        ${kvRow("Order ref", ref)}
         ${kvRow("Order ID", args.orderId)}
         ${kvRow("Created", args.createdAt || "—")}
         ${kvRow("Status", String(args.status || "pending").toUpperCase())}
@@ -240,7 +243,7 @@ ${appUrl}/admin/orders/${args.orderId}
 
   const html = emailShell({
     title: "New order received",
-    preheader: `Order #${args.orderId.slice(0, 8)} ${args.postcode ? `(${args.postcode})` : ""}`,
+    preheader: `Order ${ref} ${args.postcode ? `(${args.postcode})` : ""}`,
     bodyHtml,
   });
 
@@ -256,6 +259,7 @@ ${appUrl}/admin/orders/${args.orderId}
 export async function sendCustomerConfirmationEmail(args: {
   to: string;
   orderId: string;
+  orderNumber?: string | null; // ✅ VF-friendly reference (preferred)
   customerName?: string;
   postcode?: string;
   items: { name: string; quantity: number }[];
@@ -263,12 +267,14 @@ export async function sendCustomerConfirmationEmail(args: {
 }) {
   const transport = getTransport();
 
+  const ref = getOrderRef({ id: args.orderId, orderNumber: args.orderNumber });
+
   const total =
     typeof args.totalPence === "number"
       ? `£${(args.totalPence / 100).toFixed(2)}`
       : "—";
 
-  const subject = `We’ve received your order (#${args.orderId.slice(0, 8)})`;
+  const subject = `We’ve received your order (${ref})`;
 
   const linesText = args.items.map((i) => `- ${i.name} x${i.quantity}`);
 
@@ -276,7 +282,7 @@ export async function sendCustomerConfirmationEmail(args: {
 
 Thanks for your order with Verrington Firewood.
 
-Order reference: ${args.orderId.slice(0, 8)}
+Order reference: ${ref}
 Postcode: ${args.postcode || "—"}
 
 Items:
@@ -303,7 +309,7 @@ Verrington Firewood
     <p>Thanks for your order with <b>Verrington Firewood</b>. We’ll be in touch shortly to confirm delivery timing.</p>
 
     <table width="100%" cellpadding="0" cellspacing="0">
-      ${kvRow("Order ref", args.orderId.slice(0, 8))}
+      ${kvRow("Order ref", ref)}
       ${kvRow("Postcode", args.postcode || "—")}
     </table>
 
@@ -319,7 +325,7 @@ Verrington Firewood
 
   const html = emailShell({
     title: "Order received",
-    preheader: `Order #${args.orderId.slice(0, 8)} received`,
+    preheader: `Order ${ref} received`,
     bodyHtml,
   });
 
@@ -335,19 +341,22 @@ Verrington Firewood
 export async function sendCustomerStatusUpdateEmail(args: {
   to: string;
   orderId: string;
+  orderNumber?: string | null; // ✅ VF-friendly reference (preferred)
   customerName?: string;
   postcode?: string;
   status: string;
 }) {
   const transport = getTransport();
 
+  const ref = getOrderRef({ id: args.orderId, orderNumber: args.orderNumber });
+
   const s = String(args.status || "").toLowerCase();
 
   const subjectMap: Record<string, string> = {
-    paid: `Payment received (#${args.orderId.slice(0, 8)})`,
-    "out-for-delivery": `Out for delivery today (#${args.orderId.slice(0, 8)})`,
-    delivered: `Delivered ✅ (#${args.orderId.slice(0, 8)})`,
-    cancelled: `Order cancelled (#${args.orderId.slice(0, 8)})`,
+    paid: `Payment received (${ref})`,
+    "out-for-delivery": `Out for delivery today (${ref})`,
+    delivered: `Delivered ✅ (${ref})`,
+    cancelled: `Order cancelled (${ref})`,
   };
 
   const headlineMap: Record<string, string> = {
@@ -357,14 +366,14 @@ export async function sendCustomerStatusUpdateEmail(args: {
     cancelled: "Order cancelled",
   };
 
-  const subject = subjectMap[s] || `Order update (#${args.orderId.slice(0, 8)})`;
+  const subject = subjectMap[s] || `Order update (${ref})`;
   const headline = headlineMap[s] || "Order update";
 
   const text = `Hi ${args.customerName || "there"},
 
 ${headline} for your Verrington Firewood order.
 
-Order reference: ${args.orderId.slice(0, 8)}
+Order reference: ${ref}
 Postcode: ${args.postcode || "—"}
 Status: ${s.toUpperCase()}
 
