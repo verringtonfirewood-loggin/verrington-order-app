@@ -1,4 +1,3 @@
-// src/app/api/admin/orders/[id]/status/route.ts
 import { NextResponse, type NextRequest } from "next/server";
 import { sendCustomerStatusUpdateEmail } from "@/lib/mailer";
 import { prisma } from "@/lib/prisma";
@@ -9,7 +8,6 @@ export const dynamic = "force-dynamic";
 const ALLOWED_STATUSES = ["NEW", "PAID", "OFD", "DELIVERED", "CANCELLED"] as const;
 type AllowedStatus = (typeof ALLOWED_STATUSES)[number];
 
-// Your mailer expects: paid | out-for-delivery | delivered | cancelled
 function mapToMailerStatus(s: AllowedStatus): string | null {
   switch (s) {
     case "PAID":
@@ -21,15 +19,15 @@ function mapToMailerStatus(s: AllowedStatus): string | null {
     case "CANCELLED":
       return "cancelled";
     default:
-      return null; // NEW -> no customer email by default
+      return null;
   }
 }
 
 export async function POST(
   req: NextRequest,
-  ctx: { params: { id: string } }
+  context: { params: Promise<{ id: string }> } // ✅ Next.js 16 signature
 ) {
-  const id = ctx.params.id;
+  const { id } = await context.params; // ✅ MUST await params
 
   let body: any = null;
   try {
@@ -47,7 +45,6 @@ export async function POST(
     );
   }
 
-  // Update and return the fields we need for UX + emails
   const updated = await prisma.order.update({
     where: { id },
     data: { status: nextStatus },
@@ -63,19 +60,17 @@ export async function POST(
 
   const mailerStatus = mapToMailerStatus(nextStatus);
 
-  // Send customer status email if we have an email and a mapped status
   if (updated.customerEmail && mailerStatus) {
     try {
       await sendCustomerStatusUpdateEmail({
         to: updated.customerEmail,
-        orderId: updated.id, // ✅ MUST be the DB id
-        orderNumber: updated.orderNumber, // ✅ VF-ORDER-###
+        orderId: updated.id,
+        orderNumber: updated.orderNumber,
         customerName: updated.customerName ?? undefined,
         postcode: updated.postcode ?? undefined,
         status: mailerStatus,
       });
     } catch (e) {
-      // Don’t fail the API request if email fails
       console.error("sendCustomerStatusUpdateEmail failed", e);
     }
   }
