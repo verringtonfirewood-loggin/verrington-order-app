@@ -50,9 +50,7 @@ export default function OrderPage() {
   const [town, setTown] = useState("");
   const [county, setCounty] = useState("");
 
-  const [paymentMethod, setPaymentMethod] = useState<"MOLLIE" | "BACS" | "CASH">(
-    "BACS"
-  );
+  const [paymentMethod, setPaymentMethod] = useState<"MOLLIE" | "BACS" | "CASH">("BACS");
 
   const [deliveryNotes, setDeliveryNotes] = useState("");
   const [preferredDay, setPreferredDay] = useState(""); // yyyy-mm-dd
@@ -107,9 +105,7 @@ export default function OrderPage() {
           name: String(p.name ?? ""),
           description: String(p.description ?? ""),
           pricePence:
-            typeof p.pricePence === "number"
-              ? p.pricePence
-              : Math.round(Number(p.price ?? 0) * 100),
+            typeof p.pricePence === "number" ? p.pricePence : Math.round(Number(p.price ?? 0) * 100),
           imageUrl: p.imageUrl ?? null,
           imageAlt: p.imageAlt ?? p.name ?? null,
         }));
@@ -303,15 +299,32 @@ export default function OrderPage() {
         </div>
       </header>
 
+      {/* ✅ NEW: Home / Back controls */}
+      <div className="mx-auto max-w-5xl px-6 pt-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="rounded-full border px-4 py-2 text-sm font-semibold hover:bg-black/5 transition-colors"
+          >
+            ← Back
+          </button>
+
+          <Link
+            href="/"
+            className="rounded-full border px-4 py-2 text-sm font-semibold hover:bg-black/5 transition-colors"
+          >
+            🏠 Home
+          </Link>
+        </div>
+      </div>
+
       {/* Page content */}
       <div className="mx-auto grid max-w-5xl gap-6 px-6 py-8 lg:grid-cols-[1fr_360px]">
         {/* Left column */}
         <section className="space-y-6">
           {/* Intro */}
-          <div
-            className="rounded-3xl border p-6 shadow-sm"
-            style={{ background: "var(--vf-surface)" }}
-          >
+          <div className="rounded-3xl border p-6 shadow-sm" style={{ background: "var(--vf-surface)" }}>
             <h1 className="text-2xl font-extrabold">Place your order</h1>
             <p className="mt-1 text-sm text-[var(--vf-muted)]">
               Choose your logs, add your details, and we’ll confirm delivery by text.
@@ -331,16 +344,11 @@ export default function OrderPage() {
           </div>
 
           {/* Products */}
-          <div
-            className="rounded-3xl border p-6 shadow-sm"
-            style={{ background: "var(--vf-surface)" }}
-          >
+          <div className="rounded-3xl border p-6 shadow-sm" style={{ background: "var(--vf-surface)" }}>
             <div className="flex items-end justify-between gap-4">
               <div>
                 <h2 className="text-lg font-extrabold">Products</h2>
-                <p className="mt-1 text-sm text-[var(--vf-muted)]">
-                  Tap + / – to choose quantities.
-                </p>
+                <p className="mt-1 text-sm text-[var(--vf-muted)]">Tap + / – to choose quantities.</p>
               </div>
               <Link href="/prices" className="text-sm font-semibold underline underline-offset-4">
                 View prices
@@ -382,9 +390,7 @@ export default function OrderPage() {
                                 {p.description}
                               </div>
                             ) : null}
-                            <div className="mt-2 font-semibold">
-                              {formatGBPFromPence(p.pricePence)}
-                            </div>
+                            <div className="mt-2 font-semibold">{formatGBPFromPence(p.pricePence)}</div>
 
                             {q > 0 ? (
                               <div className="mt-1 text-sm text-[var(--vf-muted)]">
@@ -429,10 +435,7 @@ export default function OrderPage() {
           </div>
 
           {/* Basket */}
-          <div
-            className="rounded-3xl border p-6 shadow-sm"
-            style={{ background: "var(--vf-surface)" }}
-          >
+          <div className="rounded-3xl border p-6 shadow-sm" style={{ background: "var(--vf-surface)" }}>
             <h2 className="text-lg font-extrabold">Basket</h2>
             <p className="mt-1 text-sm text-[var(--vf-muted)]">
               Double-check your order before submitting.
@@ -489,10 +492,7 @@ export default function OrderPage() {
                               inputMode="numeric"
                               className="h-9 w-14 rounded-xl border bg-transparent px-2 text-center font-bold outline-none focus:ring-2"
                               onChange={(e) => {
-                                const n = parseInt(
-                                  e.target.value.replace(/[^\d]/g, ""),
-                                  10
-                                );
+                                const n = parseInt(e.target.value.replace(/[^\d]/g, ""), 10);
                                 setProductQty(i.productId, Number.isFinite(n) ? n : 0);
                               }}
                               disabled={submitting}
@@ -527,13 +527,11 @@ export default function OrderPage() {
                 <div className="rounded-3xl border p-4">
                   <div className="flex items-center justify-between">
                     <div className="text-sm text-[var(--vf-muted)]">Subtotal</div>
-                    <div className="text-lg font-extrabold">
-                      {formatGBPFromPence(subtotalPence)}
-                    </div>
+                    <div className="text-lg font-extrabold">{formatGBPFromPence(subtotalPence)}</div>
                   </div>
                   <p className="mt-2 text-xs text-[var(--vf-muted)]">
-                    Delivery fee (if any) and final totals are confirmed after submission
-                    based on your postcode.
+                    Delivery fee (if any) and final totals are confirmed after submission based on your
+                    postcode.
                   </p>
                 </div>
               </div>
@@ -541,14 +539,10 @@ export default function OrderPage() {
           </div>
 
           {/* Details */}
-          <div
-            className="rounded-3xl border p-6 shadow-sm"
-            style={{ background: "var(--vf-surface)" }}
-          >
+          <div className="rounded-3xl border p-6 shadow-sm" style={{ background: "var(--vf-surface)" }}>
             <h2 className="text-lg font-extrabold">Your details</h2>
 
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              {/* Address */}
               <div className="sm:col-span-2">
                 <label className="text-sm font-semibold">Address line 1</label>
                 <input
@@ -591,7 +585,6 @@ export default function OrderPage() {
                 />
               </div>
 
-              {/* Postcode */}
               <div className="sm:col-span-2">
                 <label className="text-sm font-semibold">Postcode</label>
                 <input
@@ -611,7 +604,6 @@ export default function OrderPage() {
                 )}
               </div>
 
-              {/* Contact */}
               <div className="sm:col-span-2">
                 <label className="text-sm font-semibold">Name</label>
                 <input
@@ -645,18 +637,14 @@ export default function OrderPage() {
               </div>
 
               <div className="sm:col-span-2">
-                <label className="text-sm font-semibold">
-                  Preferred delivery day (optional)
-                </label>
+                <label className="text-sm font-semibold">Preferred delivery day (optional)</label>
                 <input
                   type="date"
                   value={preferredDay}
                   onChange={(e) => setPreferredDay(e.target.value)}
                   className="mt-1 w-full rounded-2xl border bg-transparent px-4 py-3 outline-none focus:ring-2"
                 />
-                <p className="mt-2 text-xs text-[var(--vf-muted)]">
-                  We’ll do our best, but we’ll confirm by text.
-                </p>
+                <p className="mt-2 text-xs text-[var(--vf-muted)]">We’ll do our best, but we’ll confirm by text.</p>
               </div>
 
               <div className="sm:col-span-2">
@@ -672,15 +660,10 @@ export default function OrderPage() {
             </div>
           </div>
 
-          {/* Payment method */}
-          <div
-            className="rounded-3xl border p-6 shadow-sm"
-            style={{ background: "var(--vf-surface)" }}
-          >
+          <div className="rounded-3xl border p-6 shadow-sm" style={{ background: "var(--vf-surface)" }}>
             <h2 className="text-lg font-extrabold">Payment method</h2>
             <p className="mt-1 text-sm text-[var(--vf-muted)]">
-              Choose how you’d like to pay. Bank transfer and cash are manual (no fees).
-              Card/Apple Pay uses Mollie.
+              Choose how you’d like to pay. Bank transfer and cash are manual (no fees). Card/Apple Pay uses Mollie.
             </p>
 
             <div className="mt-4 space-y-3">
@@ -695,9 +678,7 @@ export default function OrderPage() {
                 />
                 <div>
                   <div className="font-bold">Pay now (Card / Apple Pay)</div>
-                  <div className="mt-1 text-sm text-[var(--vf-muted)]">
-                    Secure checkout via Mollie.
-                  </div>
+                  <div className="mt-1 text-sm text-[var(--vf-muted)]">Secure checkout via Mollie.</div>
                 </div>
               </label>
 
@@ -712,9 +693,7 @@ export default function OrderPage() {
                 />
                 <div>
                   <div className="font-bold">Bank transfer (BACS)</div>
-                  <div className="mt-1 text-sm text-[var(--vf-muted)]">
-                    We’ll show bank details after you place the order.
-                  </div>
+                  <div className="mt-1 text-sm text-[var(--vf-muted)]">We’ll show bank details after you place the order.</div>
                 </div>
               </label>
 
@@ -729,19 +708,13 @@ export default function OrderPage() {
                 />
                 <div>
                   <div className="font-bold">Pay on delivery (Cash)</div>
-                  <div className="mt-1 text-sm text-[var(--vf-muted)]">
-                    Pay when your logs arrive.
-                  </div>
+                  <div className="mt-1 text-sm text-[var(--vf-muted)]">Pay when your logs arrive.</div>
                 </div>
               </label>
             </div>
           </div>
 
-          {/* What happens next */}
-          <div
-            className="rounded-3xl border p-6 shadow-sm"
-            style={{ background: "var(--vf-surface)" }}
-          >
+          <div className="rounded-3xl border p-6 shadow-sm" style={{ background: "var(--vf-surface)" }}>
             <h2 className="text-lg font-extrabold">What happens next?</h2>
 
             <div className="mt-3 space-y-2 text-sm text-[var(--vf-muted)]">
@@ -755,41 +728,29 @@ export default function OrderPage() {
               </div>
               <div className="flex gap-2">
                 <span aria-hidden>③</span>
-                <span>
-                  Pay by your chosen method (Card/Apple Pay, bank transfer, or cash on
-                  delivery).
-                </span>
+                <span>Pay by your chosen method (Card/Apple Pay, bank transfer, or cash on delivery).</span>
               </div>
             </div>
           </div>
 
-          {/* Desktop submit */}
           <div className="hidden lg:block">
             <button
               onClick={placeOrder}
               disabled={!canSubmit}
               className="w-full rounded-2xl px-6 py-4 text-sm font-semibold disabled:opacity-50"
-              style={{
-                background: "var(--vf-primary)",
-                color: "var(--vf-primary-contrast)",
-              }}
+              style={{ background: "var(--vf-primary)", color: "var(--vf-primary-contrast)" }}
             >
               {submitting ? "Placing order…" : "Place order"}
             </button>
 
             <p className="mt-2 text-xs text-[var(--vf-muted)]">
-              Delivery fee (if any) and totals are confirmed after submission based on your
-              postcode.
+              Delivery fee (if any) and totals are confirmed after submission based on your postcode.
             </p>
           </div>
         </section>
 
-        {/* Right column summary */}
         <aside className="hidden lg:block">
-          <div
-            className="sticky top-28 rounded-3xl border p-6 shadow-sm"
-            style={{ background: "var(--vf-surface)" }}
-          >
+          <div className="sticky top-28 rounded-3xl border p-6 shadow-sm" style={{ background: "var(--vf-surface)" }}>
             <h2 className="text-lg font-extrabold">Order summary</h2>
 
             <div className="mt-4 space-y-2">
@@ -797,10 +758,7 @@ export default function OrderPage() {
                 <div className="text-sm text-[var(--vf-muted)]">No items selected yet.</div>
               ) : (
                 items.map((i) => (
-                  <div
-                    key={i.productId}
-                    className="flex items-start justify-between gap-3 text-sm"
-                  >
+                  <div key={i.productId} className="flex items-start justify-between gap-3 text-sm">
                     <div className="min-w-0">
                       <div className="text-[var(--vf-muted)]">
                         {i.quantity} × {i.name}
@@ -814,9 +772,7 @@ export default function OrderPage() {
                         Remove
                       </button>
                     </div>
-                    <div className="font-semibold">
-                      {formatGBPFromPence(i.pricePence * i.quantity)}
-                    </div>
+                    <div className="font-semibold">{formatGBPFromPence(i.pricePence * i.quantity)}</div>
                   </div>
                 ))
               )}
@@ -825,13 +781,9 @@ export default function OrderPage() {
             <div className="mt-4 border-t pt-4 text-sm">
               <div className="flex items-center justify-between">
                 <span className="text-[var(--vf-muted)]">Subtotal</span>
-                <span className="text-lg font-extrabold">
-                  {formatGBPFromPence(subtotalPence)}
-                </span>
+                <span className="text-lg font-extrabold">{formatGBPFromPence(subtotalPence)}</span>
               </div>
-              <p className="mt-2 text-xs text-[var(--vf-muted)]">
-                Delivery is confirmed after ordering.
-              </p>
+              <p className="mt-2 text-xs text-[var(--vf-muted)]">Delivery is confirmed after ordering.</p>
             </div>
 
             <div className="mt-4">
@@ -839,10 +791,7 @@ export default function OrderPage() {
                 onClick={placeOrder}
                 disabled={!canSubmit}
                 className="w-full rounded-2xl px-5 py-3 text-sm font-semibold disabled:opacity-50"
-                style={{
-                  background: "var(--vf-primary)",
-                  color: "var(--vf-primary-contrast)",
-                }}
+                style={{ background: "var(--vf-primary)", color: "var(--vf-primary-contrast)" }}
               >
                 {submitting ? "Placing order…" : "Place order"}
               </button>
@@ -851,7 +800,6 @@ export default function OrderPage() {
         </aside>
       </div>
 
-      {/* Mobile bottom bar with mini basket */}
       <div className="fixed inset-x-0 bottom-0 z-20 border-t bg-[var(--vf-bg)]/95 backdrop-blur lg:hidden">
         <div className="mx-auto max-w-5xl px-4 py-3">
           <div className="flex items-center justify-between gap-3">
@@ -863,13 +811,9 @@ export default function OrderPage() {
             >
               <div className="text-xs text-[var(--vf-muted)]">
                 Subtotal{" "}
-                {items.length
-                  ? `• ${items.length} item${items.length === 1 ? "" : "s"}`
-                  : ""}
+                {items.length ? `• ${items.length} item${items.length === 1 ? "" : "s"}` : ""}
               </div>
-              <div className="text-base font-extrabold">
-                {formatGBPFromPence(subtotalPence)}
-              </div>
+              <div className="text-base font-extrabold">{formatGBPFromPence(subtotalPence)}</div>
               <div className="mt-1 text-xs text-[var(--vf-muted)]">
                 Tap to {showMobileSummary ? "hide" : "view"} basket
               </div>
@@ -879,29 +823,20 @@ export default function OrderPage() {
               onClick={placeOrder}
               disabled={!canSubmit}
               className="rounded-2xl px-5 py-3 text-sm font-semibold disabled:opacity-50"
-              style={{
-                background: "var(--vf-primary)",
-                color: "var(--vf-primary-contrast)",
-              }}
+              style={{ background: "var(--vf-primary)", color: "var(--vf-primary-contrast)" }}
             >
               {submitting ? "Placing…" : "Place order"}
             </button>
           </div>
 
           {showMobileSummary && (
-            <div
-              className="mt-3 rounded-2xl border p-3"
-              style={{ background: "var(--vf-surface)" }}
-            >
+            <div className="mt-3 rounded-2xl border p-3" style={{ background: "var(--vf-surface)" }}>
               {items.length === 0 ? (
                 <div className="text-sm text-[var(--vf-muted)]">No items selected yet.</div>
               ) : (
                 <div className="space-y-2">
                   {items.map((i) => (
-                    <div
-                      key={i.productId}
-                      className="flex items-center justify-between gap-3 text-sm"
-                    >
+                    <div key={i.productId} className="flex items-center justify-between gap-3 text-sm">
                       <div className="min-w-0">
                         <div className="truncate text-[var(--vf-muted)]">
                           {i.quantity} × {i.name}
@@ -915,17 +850,13 @@ export default function OrderPage() {
                           Remove
                         </button>
                       </div>
-                      <div className="font-semibold">
-                        {formatGBPFromPence(i.pricePence * i.quantity)}
-                      </div>
+                      <div className="font-semibold">{formatGBPFromPence(i.pricePence * i.quantity)}</div>
                     </div>
                   ))}
 
                   <div className="mt-3 flex justify-between border-t pt-3 text-sm">
                     <span className="text-[var(--vf-muted)]">Subtotal</span>
-                    <span className="text-base font-extrabold">
-                      {formatGBPFromPence(subtotalPence)}
-                    </span>
+                    <span className="text-base font-extrabold">{formatGBPFromPence(subtotalPence)}</span>
                   </div>
 
                   <p className="mt-2 text-xs text-[var(--vf-muted)]">

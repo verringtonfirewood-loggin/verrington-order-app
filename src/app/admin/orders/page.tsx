@@ -11,7 +11,34 @@ const prisma = getPrisma();
 export default async function AdminOrdersPage() {
   const orders = await prisma.order.findMany({
     orderBy: { createdAt: "desc" },
-    include: { items: true },
+    // Select only what the table needs (lighter + safer to serialize)
+    select: {
+      id: true,
+      createdAt: true,
+      status: true,
+      archivedAt: true,
+      cancelledAt: true,
+      cancelReason: true,
+
+      orderNumber: true,
+
+      customerName: true,
+      customerEmail: true,
+      postcode: true,
+
+      totalPence: true,
+
+      checkoutPaymentMethod: true,
+      paymentStatus: true,
+
+      items: {
+        select: {
+          id: true,
+          name: true,
+          quantity: true,
+        },
+      },
+    },
   });
 
   return (

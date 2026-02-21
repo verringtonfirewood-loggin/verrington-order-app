@@ -13,9 +13,13 @@ type Resp = {
 };
 
 function StarRow({ rating }: { rating: number }) {
-  const full = Math.round(rating); // simple + clean
+  const full = Math.round(rating);
+
   return (
-    <span aria-label={`${rating} stars`} className="tracking-wide">
+    <span
+      aria-label={`${rating} stars`}
+      className="tracking-wide inline-block animate-fade-in"
+    >
       {"★".repeat(full)}
       {"☆".repeat(Math.max(0, 5 - full))}
     </span>
@@ -46,8 +50,10 @@ export default function GoogleRatingBadge() {
             <span className="font-bold">{data.rating.toFixed(1)}</span>
             <StarRow rating={data.rating} />
             {typeof data.count === "number" ? (
-              <span className="text-[var(--vf-muted)]">({data.count})</span>
-            ) : null}
+ 		 <span className="text-[var(--vf-muted)]">
+   		 {data.count} verified Google reviews
+ 		 </span>
+		) : null}
           </div>
         </div>
 
