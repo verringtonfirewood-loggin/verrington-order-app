@@ -5,11 +5,11 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 function money(pence: number) {
-  return `\u00A3${(pence / 100).toFixed(2)}`;
+  return `£${(pence / 100).toFixed(2)}`;
 }
 
 function paymentLabel(method?: string) {
-  if (!method) return "\u2014";
+if (!method) return "—";
   const m = method.toUpperCase();
   if (m === "MOLLIE") return "CARD";
   return m;
@@ -348,7 +348,7 @@ export default function OrdersTableClient({ orders }: { orders: any[] }) {
                     >
                       <span>{paymentIcon(o.checkoutPaymentMethod)}</span>
                       <span>{paymentLabel(o.checkoutPaymentMethod)}</span>
-                      <span>\u2022</span>
+                      <span>•</span>
                       <span>{String(o.paymentStatus || "").toUpperCase()}</span>
                     </span>
                   </td>
@@ -370,8 +370,8 @@ export default function OrdersTableClient({ orders }: { orders: any[] }) {
                   <td className="p-3 align-top" style={cellStyle}>
                     {(o.items || []).slice(0, 2).map((it: any) => (
                       <div key={it.id}>
-                        \u2022 {it.quantity} \u00D7 {it.name}
-                      </div>
+ 				 • {it.quantity} × {it.name}
+				</div>
                     ))}
                     {(o.items || []).length > 2 ? (
                       <div className="text-gray-500">+{o.items.length - 2} more</div>
@@ -384,7 +384,7 @@ export default function OrdersTableClient({ orders }: { orders: any[] }) {
 
                   <td className="p-3 align-top text-right" style={cellStyle}>
                     <Link href={`/admin/orders/${o.id}`} className="text-purple-700 underline">
-                      View \u2192
+                      View →
                     </Link>
                   </td>
                 </tr>
