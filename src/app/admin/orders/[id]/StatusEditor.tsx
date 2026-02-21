@@ -5,6 +5,16 @@ import { useMemo, useState } from "react";
 
 const STATUSES = ["NEW", "PAID", "OFD", "DELIVERED", "CANCELLED"] as const;
 
+async function safeJson(res: Response) {
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
+}
+
 export default function StatusEditor({
   orderId,
   initialStatus,
@@ -26,22 +36,45 @@ export default function StatusEditor({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const isCancelled = useMemo(() => status === "CANCELLED" || !!cancelledAt, [status, cancelledAt]);
+  const isCancelled = useMemo(
+    () => status === "CANCELLED" || !!cancelledAt,
+    [status, cancelledAt]
+  );
   const isArchived = useMemo(() => !!archivedAt, [archivedAt]);
 
   async function patch(payload: any) {
     setSaving(true);
     setErr(null);
+
     try {
       const res = await fetch(`/api/admin/orders/${orderId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (!res.ok || !data?.ok) throw new Error(data?.error || "Failed to update");
 
-      const o = data.order;
+      const data = await safeJson(res);
+
+      // Handle non-JSON / empty / HTML responses gracefully
+      if (!res.ok) {
+        const msg =
+          (data as any)?.error ||
+          (typeof (data as any)?.raw === "string" ? (data as any).raw : null) ||
+          `Failed to update (${res.status})`;
+        throw new Error(msg);
+      }
+
+      // Some handlers might return 204 or empty body — treat that as success.
+      if (!data) {
+        return;
+      }
+
+      if (!(data as any)?.ok) {
+        throw new Error((data as any)?.error || "Failed to update");
+      }
+
+      const o = (data as any).order;
+
       if (o?.status) setStatus(o.status);
       setArchivedAt(o?.archivedAt ?? null);
       setCancelledAt(o?.cancelledAt ?? null);
@@ -82,6 +115,7 @@ export default function StatusEditor({
       <div className="mt-4 flex flex-col gap-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <label className="text-sm font-medium text-gray-700">Status</label>
+
           <select
             className="w-full rounded-lg border p-2 sm:max-w-xs"
             value={status}
