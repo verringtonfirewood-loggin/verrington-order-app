@@ -29,9 +29,8 @@ type AdminOrder = {
 
   orderNumber: string | null;
 
-  // NEW: payment trail
-  paymentMethod: string; // e.g. MOLLIE/CASH/BACS
-  paymentStatus: string; // e.g. PAID/FAILED/PENDING/UNPAID
+  paymentMethod: string;
+  paymentStatus: string;
   paidAt: string | null;
 
   items: AdminOrderItem[];
@@ -39,7 +38,12 @@ type AdminOrder = {
 
 function toInt(value: unknown, fallback: number): number {
   const n =
-    typeof value === "string" ? parseInt(value, 10) : typeof value === "number" ? value : NaN;
+    typeof value === "string"
+      ? parseInt(value, 10)
+      : typeof value === "number"
+      ? value
+      : NaN;
+
   return Number.isFinite(n) ? n : fallback;
 }
 
@@ -52,10 +56,23 @@ function parseIdsParam(input: unknown): string[] {
       : "";
 
   if (!raw) return [];
+
   return raw
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+/** ✅ NEW — status normaliser */
+function normaliseStatus(input: string): string {
+  const s = input.toLowerCase();
+
+  if (s === "paid") return "PAID";
+  if (s === "ofd" || s === "out-for-delivery") return "OFD";
+  if (s === "delivered") return "DELIVERED";
+  if (s === "cancelled" || s === "canceled") return "CANCELLED";
+
+  return input.toUpperCase(); // fallback
 }
 
 function toAdminOrder(raw: any): AdminOrder {
@@ -63,7 +80,11 @@ function toAdminOrder(raw: any): AdminOrder {
 
   const mapped: AdminOrder = {
     id: String(raw.id),
-    createdAt: raw.createdAt instanceof Date ? raw.createdAt.toISOString() : String(raw.createdAt),
+    createdAt:
+      raw.createdAt instanceof Date
+        ? raw.createdAt.toISOString()
+        : String(raw.createdAt),
+
     status: String(raw.status ?? "NEW"),
 
     customerName: String(raw.customerName ?? ""),
@@ -74,10 +95,14 @@ function toAdminOrder(raw: any): AdminOrder {
     totalPence: Number(raw.totalPence ?? 0),
     orderNumber: raw.orderNumber == null ? null : String(raw.orderNumber),
 
-    // Payment trail (from your schema)
     paymentMethod: String(raw.checkoutPaymentMethod ?? "BACS"),
     paymentStatus: String(raw.paymentStatus ?? "UNPAID"),
-    paidAt: raw.paidAt instanceof Date ? raw.paidAt.toISOString() : raw.paidAt ? String(raw.paidAt) : null,
+    paidAt:
+      raw.paidAt instanceof Date
+        ? raw.paidAt.toISOString()
+        : raw.paidAt
+        ? String(raw.paidAt)
+        : null,
 
     items: itemsRaw.map((it) => ({
       id: String(it.id),
@@ -88,13 +113,19 @@ function toAdminOrder(raw: any): AdminOrder {
     })),
   };
 
-  if (typeof raw.subtotalPence === "number") mapped.subtotalPence = raw.subtotalPence;
-  if (typeof raw.deliveryFeePence === "number") mapped.deliveryFeePence = raw.deliveryFeePence;
+  if (typeof raw.subtotalPence === "number")
+    mapped.subtotalPence = raw.subtotalPence;
+
+  if (typeof raw.deliveryFeePence === "number")
+    mapped.deliveryFeePence = raw.deliveryFeePence;
 
   return mapped;
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiOk | ApiErr>) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<ApiOk | ApiErr>
+) {
   try {
     if (!isAuthed(req)) return unauthorized(res);
 
@@ -107,8 +138,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const ids = parseIdsParam(req.query.ids);
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
-    const status = typeof req.query.status === "string" ? req.query.status.trim() : "";
-    const takeRaw = Array.isArray(req.query.take) ? req.query.take[0] : req.query.take;
+    const statusRaw =
+      typeof req.query.status === "string" ? req.query.status.trim() : "";
+
+    const status = statusRaw ? normaliseStatus(statusRaw) : "";
+
+    const takeRaw = Array.isArray(req.query.take)
+      ? req.query.take[0]
+      : req.query.take;
+
     const take = Math.min(Math.max(toInt(takeRaw, 50), 1), 200);
 
     const where: any = {};
@@ -139,18 +177,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const mapped = rows.map(toAdminOrder);
 
-    // Preserve selection order for /admin/print?ids=...
     const ordered =
       ids.length > 0
-        ? (ids.map((id) => mapped.find((o) => o.id === id)).filter(Boolean) as AdminOrder[])
+        ? (ids
+            .map((id) => mapped.find((o) => o.id === id))
+            .filter(Boolean) as AdminOrder[])
         : mapped;
 
     return res.status(200).json({ ok: true, orders: ordered });
   } catch (err: any) {
     console.error("GET /api/admin/orders error:", err);
+
     return res.status(500).json({
       ok: false,
-      error: err?.message ? String(err.message) : "Internal Server Error",
+      error: err?.message ?? "Internal Server Error",
     });
   }
 }
