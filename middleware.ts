@@ -1,3 +1,4 @@
+// src/middleware.ts
 import { NextRequest, NextResponse } from "next/server";
 
 export const config = {
@@ -13,71 +14,61 @@ function unauthorized() {
   });
 }
 
-function parseBasicAuth(authHeader: string) {
-  if (!authHeader.startsWith("Basic ")) return null;
+function parseUsersEnv(raw: string): Record<string, string> {
+  // Supports separators: newline, semicolon, comma
+  // Also strips Windows CR chars and trims spaces
+  const cleaned = raw.replace(/\r/g, "").trim();
+  if (!cleaned) return {};
 
-  try {
-    const b64 = authHeader.slice("Basic ".length).trim();
-    const decoded = atob(b64);
-    const idx = decoded.indexOf(":");
-    if (idx === -1) return null;
+  const parts = cleaned
+    .split(/[\n;,]+/g)
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-    const user = decoded.slice(0, idx);
-    const pass = decoded.slice(idx + 1);
-    return { user, pass };
-  } catch {
-    return null;
-  }
-}
-
-function buildAllowedUsersFromEnv(): Record<string, string> {
-  // Preferred: ADMIN_USERS="mike:pass,admin:pass2"
-  const raw = (process.env.ADMIN_USERS ?? "").trim();
   const map: Record<string, string> = {};
-
-  if (raw) {
-    for (const entry of raw.split(",")) {
-      const e = entry.trim();
-      if (!e) continue;
-
-      const idx = e.indexOf(":");
-      if (idx === -1) continue;
-
-      const u = e.slice(0, idx).trim();
-      const p = e.slice(idx + 1).trim();
-
-      if (u && p) map[u] = p;
-    }
+  for (const p of parts) {
+    const idx = p.indexOf(":");
+    if (idx === -1) continue;
+    const u = p.slice(0, idx).trim();
+    const pw = p.slice(idx + 1).trim();
+    if (!u) continue;
+    map[u] = pw;
   }
-
-  // Back-compat: ADMIN_USER + ADMIN_PASS
-  const legacyUser = (process.env.ADMIN_USER ?? "").trim();
-  const legacyPass = (process.env.ADMIN_PASS ?? "").trim();
-  if (legacyUser && legacyPass && !map[legacyUser]) {
-    map[legacyUser] = legacyPass;
-  }
-
   return map;
 }
 
 export function middleware(req: NextRequest) {
   const auth = req.headers.get("authorization");
-  if (!auth) return unauthorized();
+  if (!auth || !auth.startsWith("Basic ")) return unauthorized();
 
-  const parsed = parseBasicAuth(auth);
-  if (!parsed) return unauthorized();
+  let user = "";
+  let pass = "";
 
-  const allowed = buildAllowedUsersFromEnv();
-
-  // Safety: if nothing configured, always block (prevents accidental open admin)
-  if (Object.keys(allowed).length === 0) {
+  try {
+    const decoded = atob(auth.slice("Basic ".length));
+    const idx = decoded.indexOf(":");
+    if (idx === -1) return unauthorized();
+    user = decoded.slice(0, idx);
+    pass = decoded.slice(idx + 1);
+  } catch {
     return unauthorized();
   }
 
-  const expected = allowed[parsed.user];
-  if (!expected || parsed.pass !== expected) {
-    return unauthorized();
+  // Prefer ADMIN_USERS if present
+  const usersEnv = process.env.ADMIN_USERS;
+  if (usersEnv && usersEnv.trim()) {
+    const users = parseUsersEnv(usersEnv);
+    const expected = users[user];
+    if (!expected) return unauthorized();
+    if (pass !== expected) return unauthorized();
+    return NextResponse.next();
   }
 
+  // Legacy fallback
+  const legacyUser = process.env.ADMIN_USER || "";
+  const legacyPass = process.env.ADMIN_PASS || "";
+  if (!legacyUser || !legacyPass) return unauthorized();
+
+  if (user !== legacyUser || pass !== legacyPass) return unauthorized();
   return NextResponse.next();
 }
