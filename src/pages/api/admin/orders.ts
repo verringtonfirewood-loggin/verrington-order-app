@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getPrisma } from "@/lib/prisma";
-import { isAuthed, unauthorized } from "@/lib/adminAuth";
 
 type ApiOk = { ok: true; orders: AdminOrder[] };
 type ApiErr = { ok: false; error: string };
@@ -127,9 +126,7 @@ export default async function handler(
   res: NextApiResponse<ApiOk | ApiErr>
 ) {
   try {
-    if (!isAuthed(req)) return unauthorized(res);
-
-    if (req.method !== "GET") {
+       if (req.method !== "GET") {
       res.setHeader("Allow", "GET");
       return res.status(405).json({ ok: false, error: "Method not allowed" });
     }

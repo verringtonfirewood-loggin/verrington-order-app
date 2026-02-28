@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getPrisma } from "@/lib/prisma";
-import { isAuthed, unauthorized } from "@/lib/adminAuth";
 
 type ApiOk = { ok: true; order: AdminOrder };
 type ApiErr = { ok: false; error: string };
@@ -73,7 +72,6 @@ function toAdminOrder(raw: any): AdminOrder {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiOk | ApiErr>) {
   try {
-    if (!isAuthed(req)) return unauthorized(res);
 
     const prisma = getPrisma();
     const id = typeof req.query.id === "string" ? req.query.id : "";
